@@ -79,7 +79,7 @@ What else changes:
 | running commands | `cd /tmp && sudo -u mediaorg mediaorg ...` | `sudo mediaorg ...` (media commands switch to the `mediaorg` account by themselves; the old way still works) |
 | command names | `freebox-authorize`, `freebox-status`, `tmm-sync`, `tmm-status` | `freebox authorize`, `freebox status`, `tmm sync`, `tmm status` (the old names still work) |
 | changing settings | editing `config.toml` by hand | `sudo mediaorg config set KEY=VALUE` (checked, documented, previous file kept as `.bak`, units rewritten when needed); editing by hand still works, then `sudo mediaorg config validate` and `sudo mediaorg service install` |
-| systemd units | static files | written from the configuration by `sudo mediaorg service install`: only the configured folders are writable, stricter sandbox (`ProtectSystem=strict`); the installer rewrites them during the upgrade |
+| systemd units | static files | written from the configuration by `sudo mediaorg service install`: only the state folder and the folder that holds the media folders are writable, stricter sandbox (`ProtectSystem=strict`); the installer rewrites them during the upgrade |
 | schedule | edited with drop-ins | `schedule.run_every_minutes`, `schedule.tmm_sync_time` (local time of the machine) |
 | journals (undo) | kept forever | journals of finished runs are deleted after `reports.journal_retention_days` (365); `0` keeps them forever |
 | run reports | by age only | also at most `reports.max_reports` (2000) |

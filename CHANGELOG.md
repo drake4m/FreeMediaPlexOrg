@@ -20,7 +20,8 @@ them.
 - **Watched-folder mode** (`completeness.method = "quiescence"`): works with any download client and with
   files copied by hand. The Freebox is now optional.
 - **Generated systemd units**: `mediaorg service install [--enable]`, `remove`, `status`, `show`. The units
-  carry the configured folders (the only writable ones), the mounts they need, the schedule
+  carry the folders they may write (the state folder and the one folder that holds Downloads, the
+  libraries and the review folder), the mounts they need, the schedule
   (`schedule.run_every_minutes`, `schedule.tmm_sync_time`) and a strict sandbox. They are rewritten when a
   setting they depend on changes; the nightly tinyMediaManager timer is added, and enabled along with
   `mediaorg.timer`, when tMM is enabled. A run missed while the machine was off runs at the next boot.
@@ -70,7 +71,7 @@ them.
   refused, and an existing parent folder keeps its owner and mode.
 - Plain `http://` to a tinyMediaManager on another machine is refused unless explicitly allowed.
 - The units run without capabilities, with a read-only system, private `/tmp` and devices, a system-call
-  filter, and write access only to the configured folders.
+  filter, and write access only to the state folder and the folder that holds the media folders.
 
 [Unreleased]: https://github.com/drake4m/FreeMediaPlexOrg/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/drake4m/FreeMediaPlexOrg/releases/tag/v2.0.0

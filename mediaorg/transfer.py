@@ -79,11 +79,19 @@ def rename_noreplace(src: str, dst: str) -> None:
 
 def make_dir(path: str) -> None:
     """mkdir with the permissions of the folder it is created in, so that a library shared with a media
-    server (755, or a group-shared 2775) keeps its modes.  Best effort: some network filesystems decide
-    the modes themselves."""
-    os.mkdir(path)
+    server (755, or a group-shared 2775) keeps its modes.  The mode is given to mkdir itself, without the
+    set-id bits: the timers' sandbox (RestrictSUIDSGID=) refuses any mode that carries them, and the kernel
+    passes a parent's setgid bit on to a new folder by itself.  Best effort: some network filesystems
+    decide the modes themselves."""
+    want = stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode)
+    old = os.umask(0)
     try:
-        os.chmod(path, stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode))
+        os.mkdir(path, want & 0o1777)
+    finally:
+        os.umask(old)
+    try:
+        if stat.S_IMODE(os.stat(path).st_mode) != want and not want & (stat.S_ISUID | stat.S_ISGID):
+            os.chmod(path, want)
     except OSError:
         pass
 

@@ -52,6 +52,9 @@ def _same_settings(a: dict, b: dict) -> bool:
 def write_config(path: str, raw: dict) -> tuple[str | None, object]:
     """Validate `raw` as a whole, then write it with its documentation.  -> (backup path, Config)"""
     text, cfg = _validated(path, raw)
+    from .service import installed_config, render_units
+    if installed_config() == os.path.abspath(path):
+        render_units(cfg, os.path.abspath(path))  # the installed units must still be possible: refused before writing
     folder = os.path.dirname(os.path.abspath(path))
     if not os.path.isdir(folder):
         if not is_root():
@@ -368,6 +371,11 @@ def _report_access(cfg) -> None:
         checks.append((p.review, rw))
     if os.path.isdir(p.state_dir):
         checks.append((p.state_dir, rw))
+    from .service import move_root
+    try:
+        move_root(cfg)
+    except ConfigError as exc:  # manual runs work; the timers' sandbox cannot serve such a layout
+        print(f"WARNING: {exc}")
     bad = access_as(SERVICE_USER, checks)
     if bad is None:
         return

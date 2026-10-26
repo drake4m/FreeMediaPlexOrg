@@ -5,6 +5,7 @@ import logging
 import logging.handlers
 import os
 import shutil
+import stat
 import tempfile
 import time
 import unittest
@@ -140,6 +141,33 @@ class TestFolderModes(unittest.TestCase):
                 os.mkdir(parent)
                 os.chmod(parent, mode)
                 make_dir(os.path.join(parent, "Season 1"))
+                got = os.stat(os.path.join(parent, "Season 1")).st_mode & 0o7777
+                self.assertEqual(got, mode, f"{mode:o} -> {got:o}")
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_new_folders_keep_a_shared_mode_under_the_sandbox(self):
+        # RestrictSUIDSGID= in the units: chmod/mkdir with a set-id bit fail with EPERM (seccomp)
+        from mediaorg import transfer
+
+        real_chmod, real_mkdir = os.chmod, os.mkdir
+
+        def no_setid(fn):
+            def call(path, mode, *a, **k):
+                if mode & (stat.S_ISUID | stat.S_ISGID):
+                    raise PermissionError(1, "Operation not permitted", path)
+                return fn(path, mode, *a, **k)
+            return call
+
+        tmp = tempfile.mkdtemp()
+        try:
+            for mode in (0o2775, 0o775, 0o2750):
+                parent = os.path.join(tmp, f"p{mode:o}")
+                os.mkdir(parent)
+                os.chmod(parent, mode)
+                with mock.patch("mediaorg.transfer.os.chmod", no_setid(real_chmod)), \
+                        mock.patch("mediaorg.transfer.os.mkdir", no_setid(real_mkdir)):
+                    transfer.make_dir(os.path.join(parent, "Season 1"))
                 got = os.stat(os.path.join(parent, "Season 1")).st_mode & 0o7777
                 self.assertEqual(got, mode, f"{mode:o} -> {got:o}")
         finally:

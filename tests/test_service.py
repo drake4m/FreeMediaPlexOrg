@@ -30,7 +30,9 @@ class TestRender(unittest.TestCase):
                      "ExecStart=/usr/local/bin/mediaorg --config /etc/mediaorg/config.toml run --apply --quiet",
                      "ConditionPathExists=/etc/mediaorg/config.toml",
                      "RequiresMountsFor=/srv/media/downloads /srv/media/movies /srv/media/tv",
-                     "ReadWritePaths=/var/lib/mediaorg -/srv/media/downloads -/srv/media/movies -/srv/media/tv"):
+                     # one writable folder holds every move: each ReadWritePaths= entry is a mount of its own,
+                     # and a rename between two of them fails with EXDEV (seen in CI: Downloads -> TV)
+                     "ReadWritePaths=/var/lib/mediaorg -/srv/media"):
             self.assertIn(line + "\n", s)
         self.assertTrue(s.startswith(service.MARK))
 
@@ -49,7 +51,8 @@ class TestRender(unittest.TestCase):
                        "series": "/srv/my media/tv"})
         units = service.render_units(c, "/etc/media org/config.toml")
         s = units["mediaorg.service"]
-        self.assertIn('"-/srv/my media/100%% movies"', s)
+        self.assertIn('ReadWritePaths=/var/lib/mediaorg "-/srv/my media"\n', s)
+        self.assertIn('"/srv/my media/100%% movies"', s)  # RequiresMountsFor=, % escaped for systemd
         self.assertIn('ExecStart=/usr/local/bin/mediaorg --config "/etc/media org/config.toml" run', s)
         self.assertIn('ConditionPathExists=/etc/media org/config.toml\n', s)
 
@@ -78,7 +81,7 @@ class TestRender(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             c = cfg(paths={"downloads": "/srv/my media/dl", "movies": "/srv/my media/100% movies",
-                           "series": "/home/x/tv"}, tmm={"enabled": True}, logging={"file": "/var/log/m/m.log"})
+                           "series": "/srv/my media/tv"}, tmm={"enabled": True}, logging={"file": "/home/x/log/m.log"})
             units = service.render_units(c, "/etc/media org/config.toml", exe=sys.executable)
             for name, text in units.items():
                 with open(os.path.join(tmp, name), "w", encoding="utf-8") as fh:
@@ -197,10 +200,19 @@ class TestEnsureFolders(unittest.TestCase):
             self.assertEqual(os.stat(f"{tmp}/state").st_mode & 0o7777, 0o750)
             self.assertEqual(os.stat(f"{media}/review").st_mode & 0o7777, 0o2775)  # like its parent
             units = service.render_units(c, "/etc/mediaorg/config.toml")
-            self.assertIn(f"ReadWritePaths={tmp}/state -{media}/downloads -{media}/movies -{media}/tv "
-                          f"-{media}/review\n", units["mediaorg.service"])  # the review folder, not its parent
+            self.assertIn(f"ReadWritePaths={tmp}/state -{media}\n", units["mediaorg.service"])
         finally:
             shutil.rmtree(tmp)
+
+    def test_folders_without_a_common_folder_cannot_be_served_by_the_sandbox(self):
+        apart = cfg(paths={"downloads": "/downloads", "movies": "/srv/media/movies", "series": "/srv/media/tv"})
+        with self.assertRaisesRegex(C.ConfigError, "no common folder other than /"):
+            service.render_units(apart, "/c.toml")
+        review_apart = cfg(paths={"review": "/review"})  # moves into review must stay inside the writable folder
+        with self.assertRaisesRegex(C.ConfigError, "no common folder other than /"):
+            service.render_units(review_apart, "/c.toml")
+        outside = cfg(paths={"review": "/srv/review"})
+        self.assertIn("ReadWritePaths=/var/lib/mediaorg -/srv\n", service.render_units(outside, "/c.toml")["mediaorg.service"])
 
     def test_a_daily_schedule_and_a_config_path_with_a_newline(self):
         units = service.render_units(cfg(schedule={"run_every_minutes": 1440}), "/c.toml")

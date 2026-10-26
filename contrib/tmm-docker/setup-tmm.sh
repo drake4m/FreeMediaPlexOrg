@@ -58,7 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo)" 2
-[ -n "$MOVIES" ] && [ -n "$SERIES" ] || die "--movies and --series are required (see --help)" 2
+if [ -z "$MOVIES" ] || [ -z "$SERIES" ]; then die "--movies and --series are required (see --help)" 2; fi
 [ -f "$UNIT_SRC" ] || die "unit file not found next to this script: $UNIT_SRC" 2
 
 check_dir() {  # absolute, existing, and usable in a docker volume (no ':' or ',')

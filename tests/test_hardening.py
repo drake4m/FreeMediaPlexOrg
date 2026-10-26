@@ -237,6 +237,34 @@ class TestConfigurationEdges(unittest.TestCase):
         finally:
             t.cleanup()
 
+    def test_a_change_the_installed_units_cannot_serve_is_refused_before_writing(self):
+        from mediaorg import service
+        from mediaorg.config import load
+
+        from .test_config_v2 import _Tree
+
+        t = _Tree()
+        try:
+            t.init()
+            units = os.path.join(t.tmp, "units")
+            os.makedirs(units)
+            for name, text in service.render_units(load(t.cfg), t.cfg).items():
+                touch(os.path.join(units, name), text.encode())
+            with open(t.cfg, "rb") as fh:
+                before = fh.read()
+            with self.assertLogs("mediaorg", "ERROR") as logs:
+                code, out = t.cli("config", "set", "paths.review=/var/tmp")  # moves would leave the writable folder
+            self.assertEqual(code, 2, out)
+            self.assertIn("no common folder other than /", "\n".join(logs.output))
+            with open(t.cfg, "rb") as fh:
+                self.assertEqual(fh.read(), before)
+            with mock.patch("mediaorg.service.UNIT_DIR", units), mock.patch("os.geteuid", return_value=1000):
+                from .helpers import run_cli
+                code, out = run_cli("-c", t.cfg, "check")
+            self.assertIn("systemd units match the configuration", out)
+        finally:
+            t.cleanup()
+
     def test_a_schedule_set_in_a_drop_in_is_reported(self):
         from mediaorg import service
 

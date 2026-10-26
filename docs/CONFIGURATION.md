@@ -92,7 +92,7 @@ Folders. Downloads, the library and the review folder must be on ONE filesystem:
 | `downloads` | path | required | Folder where completed downloads appear (the watched folder). Each entry in it, a file or a folder, is one download. Example: `"/srv/media/downloads"` |
 | `movies` | path | required | Movie library: &lt;movies&gt;/&lt;Title (Year)&gt;/&lt;files&gt;. Example: `"/srv/media/movies"` |
 | `series` | path | required | TV library: &lt;series&gt;/&lt;Show (Year)&gt;/Season N/&lt;files&gt;. Example: `"/srv/media/tv"` |
-| `review` | path | &lt;downloads&gt;/_review | Where duplicates and leftovers of handled downloads go for you to review. Same filesystem as the rest; inside Downloads only as a direct child listed in media.ignore_names. |
+| `review` | path | &lt;downloads&gt;/_review | Where duplicates and leftovers of handled downloads go for you to review. Same filesystem as the rest; inside Downloads only as a direct child listed in media.ignore_names. For the timers it must share a folder other than / with Downloads and the libraries. |
 | `state_dir` | path | `"/var/lib/mediaorg"` | Local folder for journals (undo), reports, the run lock, the Freebox token and caches. Never on the media storage. |
 
 ### `[mount]`

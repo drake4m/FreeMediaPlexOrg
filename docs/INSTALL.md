@@ -25,7 +25,9 @@ and Ubuntu 24.04 or later ship a final Python 3.11 or newer as `python3`.
 
 **Your folders.** Downloads, the movie library and the TV library must be on **one filesystem** (the same
 disk, or the same network share): files are moved with instant renames and are never copied. A layout
-with downloads on one disk and the library on another is refused by `config init` and `check`.
+with downloads on one disk and the library on another is refused by `config init` and `check`. For the
+timers they must also be inside one folder other than `/` (such as `/srv/media` or the mount point of a
+share): the systemd sandbox makes that one folder writable, and a move must stay inside it.
 
 ## Quick install
 

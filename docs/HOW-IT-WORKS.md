@@ -125,7 +125,8 @@ Enforced in code and covered by the test suite:
    happens. Interrupted runs are reconciled, and runs can be undone.
 9. **One run at a time** (a lock), and at most `safety.max_moves_per_run` moves and deletions per run.
 10. **Least privilege.** Media commands run as the unprivileged `mediaorg` account (a root caller is
-    switched to it first) under a strict systemd sandbox that can write only the configured folders.
+    switched to it first) under a strict systemd sandbox that can write only its state folder and the one
+    folder that holds Downloads, the libraries and the review folder.
     Secrets are files readable by that account only, never command-line arguments. A configuration that
     other users could change, or a key or token that they could read or change, is refused each time it is
     read.

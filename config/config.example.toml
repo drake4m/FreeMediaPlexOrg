@@ -23,7 +23,8 @@ movies = "/srv/media/movies"
 series = "/srv/media/tv"
 
 # Where duplicates and leftovers of handled downloads go for you to review. Same filesystem as the
-# rest; inside Downloads only as a direct child listed in media.ignore_names.
+# rest; inside Downloads only as a direct child listed in media.ignore_names. For the timers it
+# must share a folder other than / with Downloads and the libraries.
 # review = ...   (default: <downloads>/_review)
 
 # Local folder for journals (undo), reports, the run lock, the Freebox token and caches. Never on

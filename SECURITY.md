@@ -25,7 +25,8 @@ What mediaorg protects, and how:
   before the configuration is read.
 - **systemd sandbox.** The timer runs have no capabilities, no new privileges, a read-only system
   (`ProtectSystem=strict`), private `/tmp` and devices, a system-call filter, restricted address families,
-  and write access only to the configured folders.
+  and write access only to the state folder, the optional log folder, and the one folder that holds
+  Downloads, the libraries and the review folder (a move must stay inside one writable mount).
 - **Secrets.** The tinyMediaManager API key and the Freebox app token are files readable by the `mediaorg`
   account only (0640 root:mediaorg, 0600); they are never accepted as command-line arguments, never logged,
   and never written to reports. A configuration, key or token file that other users could change (or read,

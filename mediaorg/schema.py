@@ -85,7 +85,8 @@ KEYS: list[Key] = [
     Key("paths", "movies", "path", "Movie library: <movies>/<Title (Year)>/<files>.", example="/srv/media/movies"),
     Key("paths", "series", "path", "TV library: <series>/<Show (Year)>/Season N/<files>.", example="/srv/media/tv"),
     Key("paths", "review", "path", "Where duplicates and leftovers of handled downloads go for you to review. "
-        "Same filesystem as the rest; inside Downloads only as a direct child listed in media.ignore_names.",
+        "Same filesystem as the rest; inside Downloads only as a direct child listed in media.ignore_names. "
+        "For the timers it must share a folder other than / with Downloads and the libraries.",
         derived="<downloads>/_review"),
     Key("paths", "state_dir", "path", "Local folder for journals (undo), reports, the run lock, the Freebox token "
         "and caches. Never on the media storage."),

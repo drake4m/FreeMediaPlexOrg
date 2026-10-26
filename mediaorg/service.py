@@ -1,6 +1,6 @@
 """systemd units, written from the configuration by `sudo mediaorg service install`.
 
-The units carry the configured folders (write access, mount dependencies), the schedule and a strict
+The units carry the folders they may write and the mounts they need, the schedule and a strict
 sandbox; they are rewritten whenever a setting they depend on changes.  Local additions belong in
 drop-ins (`systemctl edit mediaorg.service`), which are kept.
 """
@@ -88,15 +88,28 @@ def _timer_spec(minutes: int) -> str:
     return f"OnBootSec=2min\nOnUnitInactiveSec={minutes}min\nAccuracySec=30s"
 
 
+def move_root(cfg: Config) -> str:
+    """The folder that holds Downloads, both libraries and the review folder: writable as one, so that a move
+    between them is a rename within one mount of the service's sandbox."""
+    p = cfg.paths
+    root = os.path.commonpath([p.downloads, p.movies, p.series, p.review])
+    if root == "/":
+        raise ConfigError("the downloads, movie, TV and review folders have no common folder other than /: the "
+                          "systemd sandbox lets the service move files only inside one folder; put them in one "
+                          "folder, for example /srv/media/downloads, /srv/media/movies and /srv/media/tv")
+    return root
+
+
 def render_units(cfg: Config, config_path: str, exe: str = EXE) -> dict[str, str]:
     """Unit name -> content.  The nightly tMM units only when tMM is enabled and a time is set."""
     if any(ord(c) < 32 or ord(c) == 127 for c in config_path):
         raise ConfigError(f"the configuration path {config_path!r} contains control characters")
     p = cfg.paths
     media = [p.downloads, p.movies, p.series]
-    rw = [p.state_dir] + [f"-{d}" for d in dict.fromkeys(media)]
-    if not any(p.review == m or p.review.startswith(m + "/") for m in media):
-        rw.append(f"-{p.review}")  # exactly this folder: `service install` creates it when it is missing
+    # Every move must stay inside ONE writable folder: systemd makes each ReadWritePaths= entry a bind mount
+    # of its own, and a rename from one mount to another fails with EXDEV, even on one filesystem.
+    moves = move_root(cfg)
+    rw = [p.state_dir, f"-{moves}"]
     log_dir = os.path.dirname(cfg.logging.file) if cfg.logging.file else ""
     if log_dir:
         rw.append(f"-{log_dir}")

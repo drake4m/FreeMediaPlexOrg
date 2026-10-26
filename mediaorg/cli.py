@@ -765,17 +765,21 @@ def cmd_check(cfg: Config, args) -> int:
                                     f"{cfg.logging.backups} kept)" + ("" if os.access(d, os.W_OK)
                                                                      else f": {d} is not writable"))
     from .service import installed_config, units_up_to_date
-    installed, stale = units_up_to_date(cfg, cfg.source_file)
-    owner = installed_config()
-    if not installed:
-        line("warn", "systemd timers not installed (after a good dry-run: sudo mediaorg service install --enable)")
-    elif owner != cfg.source_file:
-        line("warn", f"the installed systemd units run another configuration: {owner}")
-    elif stale:
-        line("warn", f"systemd units differ from the configuration ({', '.join(stale)}): "
-                     f"sudo mediaorg service install")
+    try:
+        installed, stale = units_up_to_date(cfg, cfg.source_file)
+    except ConfigError as exc:  # a layout the sandbox of the units cannot serve
+        line(False, f"systemd units impossible: {exc}")
     else:
-        line(True, "systemd units match the configuration")
+        owner = installed_config()
+        if not installed:
+            line("warn", "systemd timers not installed (after a good dry-run: sudo mediaorg service install --enable)")
+        elif owner != cfg.source_file:
+            line("warn", f"the installed systemd units run another configuration: {owner}")
+        elif stale:
+            line("warn", f"systemd units differ from the configuration ({', '.join(stale)}): "
+                         f"sudo mediaorg service install")
+        else:
+            line(True, "systemd units match the configuration")
     from .service import dropins
     schedule_dropins, other_dropins = dropins()
     if schedule_dropins:

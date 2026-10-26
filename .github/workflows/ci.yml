@@ -102,6 +102,10 @@ jobs:
           systemctl list-timers 'mediaorg*' --no-pager
           sudo mediaorg status
           sudo systemctl disable --now mediaorg.timer   # no timer run may race the checks below
+          for _ in $(seq 1 120); do   # ... nor one the timer started just before
+            [ "$(systemctl show -p ActiveState --value mediaorg.service)" = activating ] || break
+            sleep 1
+          done
           run_id=$(sudo mediaorg runs --limit 1 | cut -d' ' -f1)
           sudo mediaorg undo "$run_id" --apply
           test -f /srv/ci/downloads/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv
