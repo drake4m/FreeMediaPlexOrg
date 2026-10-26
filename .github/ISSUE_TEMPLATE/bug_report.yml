@@ -1,0 +1,48 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems: use private reporting (Security tab), not an issue.
+        Remove anything private from what you paste (host and share names, titles you do not want to publish).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `mediaorg --version`
+      placeholder: mediaorg 2.0.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Distribution and version, Python version, storage (local disk, CIFS, NFS ...), Freebox or watched folder
+      placeholder: Ubuntu 24.04, Python 3.12, CIFS share, watched folder
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of `sudo mediaorg check`
+      render: text
+  - type: textarea
+    id: dryrun
+    attributes:
+      label: Dry-run of the entry concerned
+      description: Output of `sudo mediaorg run --only "<entry>"` (and `mediaorg identify "<name>"` for a naming problem)
+      render: text
+  - type: textarea
+    id: journal
+    attributes:
+      label: Relevant log lines
+      description: "`journalctl -u mediaorg.service -n 100 --no-pager`"
+      render: text

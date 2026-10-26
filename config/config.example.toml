@@ -1,0 +1,306 @@
+# mediaorg configuration - EXAMPLE. `sudo mediaorg config init` writes your own (docs/INSTALL.md).
+#
+# Change it with commands; they validate the result and keep the previous file as <this file>.bak:
+#   sudo mediaorg config set paths.movies=/srv/media/movies
+#   sudo mediaorg config unset review.leftovers_retention_days
+#   mediaorg config keys --all      (every key with its type, default and meaning)
+# You may also edit it by hand, then check it: sudo mediaorg config validate
+# Comments are rewritten by `mediaorg config set`; keep notes elsewhere.
+
+# ------------------------------------------------------------------------------------------------
+[paths]
+# Folders. Downloads, the library and the review folder must be on ONE filesystem: files are moved
+# with instant renames, never copied.
+
+# Folder where completed downloads appear (the watched folder). Each entry in it, a file or a
+# folder, is one download.
+downloads = "/srv/media/downloads"
+
+# Movie library: <movies>/<Title (Year)>/<files>.
+movies = "/srv/media/movies"
+
+# TV library: <series>/<Show (Year)>/Season N/<files>.
+series = "/srv/media/tv"
+
+# Where duplicates and leftovers of handled downloads go for you to review. Same filesystem as the
+# rest; inside Downloads only as a direct child listed in media.ignore_names.
+# review = ...   (default: <downloads>/_review)
+
+# Local folder for journals (undo), reports, the run lock, the Freebox token and caches. Never on
+# the media storage.
+# state_dir = "/var/lib/mediaorg"   (default)
+
+# ------------------------------------------------------------------------------------------------
+[mount]
+# Optional safety check: nothing is touched unless this mount point is mounted from this source (a
+# NAS share, a USB disk). Without it, an unmounted share leaves an empty local folder behind that
+# could be filled by mistake. `mediaorg config init` fills it in when the media folders are on
+# their own mount. Leave the three keys commented out to disable the check.
+
+# Mount point that holds all the media folders.
+# mountpoint = "/mnt/nas"   (example)
+
+# Expected filesystem type, as `findmnt` shows it (cifs, nfs4, ext4 ...).
+# fstype = "cifs"   (example)
+
+# Expected source, as `findmnt` shows it (share or device).
+# source = "//nas.local/media"   (example)
+
+# ------------------------------------------------------------------------------------------------
+[completeness]
+# When is a download finished? "quiescence": its files have not changed for min_quiet_minutes and
+# none has a temporary extension (any download client, or files copied by hand). "freebox": the
+# Freebox download manager reports the task as done (see `mediaorg freebox authorize`).
+
+# How finished downloads are recognised (see above). One of: quiescence, freebox.
+method = "quiescence"
+
+# Minutes without any change before a download counts as finished (method "quiescence", and
+# untracked entries with untracked = "quiescence"). Minimum 5.
+# min_quiet_minutes = 10   (default)
+
+# A file with one of these extensions marks its download as unfinished.
+# temp_extensions = [".part", ".!qb", ".crdownload", ".tmp", ".partial", ".!ut", ".aria2"]   (default)
+
+# Method "freebox": entries the Freebox does not list as a task (copied by hand). "wait" = never
+# move them; "quiescence" = move them after min_quiet_minutes. One of: wait, quiescence.
+# untracked = "wait"   (default)
+
+# Method "freebox": a task that is still seeding is never moved. One of: wait.
+# on_seeding = "wait"   (default)
+
+# ------------------------------------------------------------------------------------------------
+[freebox]
+# Freebox download manager; used only with completeness.method = "freebox".
+
+# The Freebox's own path of paths.downloads, exactly as `mediaorg freebox status` prints it. A run
+# that needs the Freebox's verdict stops (nothing moved) if the Freebox downloads elsewhere.
+# remote_downloads_dir = "/Freebox/Downloads"   (example)
+
+# Freebox OS API address. HTTPS; the certificate is checked against ca_file.
+# base_url = "https://mafreebox.freebox.fr"   (default)
+
+# Freebox root certificates (installed by install.sh).
+# ca_file = "/etc/mediaorg/freebox-ca.pem"   (default)
+
+# App token written by `mediaorg freebox authorize` (mode 0600).
+# token_file = ...   (default: <state_dir>/freebox_app_token.json)
+
+# Device name shown on the Freebox when you authorize the app.
+# device_name = ...   (default: this host's name)
+
+# HTTP timeout in seconds.
+# timeout_seconds = 10   (default)
+
+# App identifier on the Freebox; changing it needs a new authorization.
+# app_id = "mediaorg"   (default)
+
+# App name shown in Freebox OS.
+# app_name = "mediaorg"   (default)
+
+# Accept an http:// base_url (not recommended).
+# allow_insecure_http = false   (default)
+
+# ------------------------------------------------------------------------------------------------
+[tmm]
+# tinyMediaManager (optional). After a run that filed something, tMM updates its library, then
+# scrapes and renames the new items. The API key is read from api_key_file (`sudo mediaorg tmm
+# set-key`), never from this file.
+
+# Send tMM its calls after runs that filed something (and the nightly sync).
+# enabled = false   (default)
+
+# tMM HTTP API address. Plain http:// only to this machine unless allow_insecure_http = true.
+# base_url = "http://127.0.0.1:7878"   (default)
+
+# File holding the tMM API key on one line (mode 0640, root:mediaorg); written by `sudo mediaorg
+# tmm set-key`.
+# api_key_file = "/etc/mediaorg/tmm.key"   (default)
+
+# Library paths as tMM sees them when it runs in a container: [[host_path, tmm_path], ...]. Needed
+# only by tMM commands that use "{paths}".
+# path_map = [
+#     ["/srv/media/movies", "/media/movies"],
+#     ["/srv/media/tv", "/media/series"],
+#   ]
+#   (example)
+
+# HTTP timeout in seconds.
+# timeout_seconds = 30   (default)
+
+# Move nothing while tMM is busy (needs tMM 5.3.5 or later; ignored before).
+# defer_moves_while_busy = true   (default)
+
+# Accept plain http:// to a tMM on another machine (the key travels unencrypted).
+# allow_insecure_http = false   (default)
+
+# API endpoint for movies (checked by `mediaorg check`).
+# movie_endpoint = "movie"   (default)
+
+# API endpoint for TV shows (checked by `mediaorg check`).
+# tvshow_endpoint = "tvshow"   (default)
+
+# tMM calls after a run that filed movies. Default: update all, scrape new, rename new.
+# after_move_movie = [
+#     { action = "update", scope = { name = "all" } },
+#     { action = "scrape", scope = { name = "new" } },
+#     { action = "rename", scope = { name = "new" } },
+#   ]
+#   (default)
+
+# tMM calls after a run that filed TV episodes. Default: update all, scrape new, rename new.
+# after_move_tvshow = [
+#     { action = "update", scope = { name = "all" } },
+#     { action = "scrape", scope = { name = "new" } },
+#     { action = "rename", scope = { name = "new" } },
+#   ]
+#   (default)
+
+# Movie calls of the nightly `mediaorg tmm sync`.
+# full_sync_movie = [
+#     { action = "update", scope = { name = "all" } },
+#     { action = "scrape", scope = { name = "new" } },
+#     { action = "rename", scope = { name = "new" } },
+#   ]
+#   (default)
+
+# TV-show calls of the nightly `mediaorg tmm sync`.
+# full_sync_tvshow = [
+#     { action = "update", scope = { name = "all" } },
+#     { action = "scrape", scope = { name = "new" } },
+#     { action = "rename", scope = { name = "new" } },
+#   ]
+#   (default)
+
+# ------------------------------------------------------------------------------------------------
+[review]
+# What is cleaned up automatically, and when.
+
+# A download whose bytes are identical to the library copy is deleted: nothing is lost. false =
+# move it to review instead.
+# delete_identical_duplicates = true   (default)
+
+# Days after which the certain duplicates of a run are deleted from review/duplicates/ (0 = at the
+# end of the run, -1 = never). Other duplicates are kept.
+# duplicates_retention_days = 7   (default)
+
+# Days after which release clutter (.nfo, .txt, small images and subtitles, small samples) is
+# deleted from review/leftovers/ (0 = at the end of the run, -1 = never). Other files are kept.
+# leftovers_retention_days = 7   (default)
+
+# Days a file stays in tMM's trash (.deletedByTMM in the library) before it is deleted (0 = in the
+# first run, -1 = never).
+# tmm_trash_retention_days = 7   (default)
+
+# The same in minutes; set this or tmm_trash_retention_days, not both.
+# tmm_trash_retention_minutes = 30   (example)
+
+# ------------------------------------------------------------------------------------------------
+[schedule]
+# Used by `sudo mediaorg service install` to write the systemd timers.
+
+# How often the timer runs mediaorg (1-1440). 1, 2, 3, 4, 5, 6, 10, 12, 15, 20 or 30 minutes and
+# 1, 2, 3, 4, 6, 8, 12 or 24 hours run at fixed times of the day; other values count from the end
+# of the previous run. A run with nothing to do takes well under a second and logs nothing.
+# run_every_minutes = 5   (default)
+
+# Local time (HH:MM) of the nightly tMM sync: update the library, scrape and rename new items. ""
+# = no nightly sync.
+# tmm_sync_time = "03:37"   (default)
+
+# ------------------------------------------------------------------------------------------------
+[safety]
+# Limits that stop a run before it acts.
+
+# A run planning more moves and deletions stops before acting (exit 6); allow it once with `run
+# --apply --max-moves N`.
+# max_moves_per_run = 50   (default)
+
+# Free space (MB) needed in state_dir before a run moves anything: every move is journaled there
+# first (0 = no check).
+# min_free_mb = 100   (default)
+
+# ------------------------------------------------------------------------------------------------
+[reports]
+# Run reports and journals in state_dir, bounded so that they never fill the disk.
+
+# Run reports older than this many days are deleted (0 = never by age).
+# retention_days = 30   (default)
+
+# At most this many run reports are kept (0 = no limit).
+# max_reports = 2000   (default)
+
+# Journals of finished runs (used by undo and by the review cleaning) are deleted after this many
+# days; must be longer than the review retention (0 = keep forever). The journal of an interrupted
+# run is kept until the next run has reconciled it.
+# journal_retention_days = 365   (default)
+
+# ------------------------------------------------------------------------------------------------
+[logging]
+# Logs always go to standard error (under systemd: the journal, rotated by journald). Optionally
+# also to a file, rotated by size.
+
+# Also write the log to this file, rotated by size (e.g. /var/log/mediaorg/mediaorg.log). "" =
+# journal only.
+# file = "/var/log/mediaorg/mediaorg.log"   (example)
+
+# Size in MB at which the log file is rotated.
+# max_size_mb = 10   (default)
+
+# Number of rotated log files kept.
+# backups = 5   (default)
+
+# ------------------------------------------------------------------------------------------------
+[media]
+# What counts as a video, a subtitle or an extra, and what is ignored in Downloads.
+
+# Files filed as videos.
+# video_extensions = [".mkv", ".mp4", ".avi", ".m4v"]   (default)
+
+# Subtitles, moved and renamed with their video.
+# subtitle_extensions = [".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"]   (default)
+
+# Videos below folders with these names are extras, never the episode or movie.
+# extras_dir_names = [
+#     "sample",
+#     "samples",
+#     "extras",
+#     "extra",
+#     "featurettes",
+#     "featurette",
+#     "bonus",
+#     "trailers",
+#     "trailer",
+#     "behind the scenes",
+#     "deleted scenes",
+#     "interviews",
+#     "shorts",
+#   ]
+#   (default)
+
+# Entries in Downloads with these names are ignored (the review folder must be listed when it is
+# inside Downloads).
+# ignore_names = ["_review", "@eaDir", "#recycle", ".DS_Store", "Thumbs.db", "desktop.ini"]   (default)
+
+# Ignore entries in Downloads whose name starts with a dot.
+# ignore_hidden = true   (default)
+
+# ------------------------------------------------------------------------------------------------
+[naming]
+# Names of the folders mediaorg creates; existing folders are always reused. Placeholders:
+# {title}, {year}, {season}.
+
+# New movie folder.
+# movie_folder = "{title} ({year})"   (default)
+
+# New movie folder when the release has no year (tMM adds the year when it renames the movie).
+# movie_folder_no_year = "{title}"   (default)
+
+# New show folder.
+# series_folder = "{title} ({year})"   (default)
+
+# New show folder when the release has no year.
+# series_folder_no_year = "{title}"   (default)
+
+# Season folder inside a show folder.
+# season_folder = "Season {season}"   (default)

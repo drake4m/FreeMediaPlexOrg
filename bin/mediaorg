@@ -1,0 +1,9 @@
+#!/opt/mediaorg/venv/bin/python -I
+# mediaorg launcher: isolated interpreter (-I ignores PYTHON* env vars, user site and the
+# current directory), code loaded only from /opt/mediaorg/app.
+import sys
+
+sys.path.insert(0, "/opt/mediaorg/app")
+from mediaorg.cli import main  # noqa: E402
+
+sys.exit(main())

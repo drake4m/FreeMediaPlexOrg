@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Dependencies (pinned, hash-checked wheels)
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes --no-deps --only-binary=:all: -r requirements.lock
+      - name: Test suite
+        run: python -m unittest discover -s tests -t . -v
+      - name: Generated files up to date
+        if: matrix.python == '3.13' || matrix.python == '3.14'
+        run: python tools/gen_docs.py --check
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: ruff
+        run: |
+          python -m pip install --disable-pip-version-check ruff==0.16.9
+          ruff check .
+      - name: shellcheck
+        run: shellcheck -S style install.sh contrib/tmm-docker/setup-tmm.sh tools/build-release.sh
+
+  install:
+    name: release tarball, install.sh and the systemd service
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the release tarball
+        run: |
+          bash tools/build-release.sh
+          ls -l dist
+      - name: Install from the tarball
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-venv
+          mkdir -p "$RUNNER_TEMP/rel"
+          tar -C "$RUNNER_TEMP/rel" -xzf dist/freemediaplexorg-*.tar.gz
+          (cd dist && sha256sum -c ./*.sha256)
+          sudo bash "$RUNNER_TEMP"/rel/freemediaplexorg-*/install.sh
+          mediaorg --version
+          sudo bash "$RUNNER_TEMP"/rel/freemediaplexorg-*/install.sh   # running it again is safe
+      - name: Configure a test library (invented names)
+        run: |
+          sudo install -d -m 0755 /srv/ci
+          sudo install -d -o mediaorg -g mediaorg -m 0755 /srv/ci/downloads /srv/ci/movies /srv/ci/tv
+          f=/srv/ci/downloads/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv
+          sudo -u mediaorg truncate -s 2M "$f"
+          sudo -u mediaorg touch -d '1 hour ago' "$f"
+          sudo mediaorg config init --non-interactive --downloads /srv/ci/downloads --movies /srv/ci/movies --series /srv/ci/tv
+          sudo mediaorg config set completeness.min_quiet_minutes=15
+          sudo mediaorg check
+          sudo mediaorg probe-rename --apply
+          sudo mediaorg run
+      - name: One run by the sandboxed systemd service
+        run: |
+          sudo mediaorg service install
+          sudo systemd-analyze verify /etc/systemd/system/mediaorg.service /etc/systemd/system/mediaorg.timer
+          sudo systemctl start mediaorg.service || true
+          sudo journalctl -u mediaorg.service --no-pager | tail -n 40
+          test "$(systemctl show -p Result --value mediaorg.service)" = success
+          test -f "/srv/ci/tv/Night Harbor/Season 1/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv"
+          test ! -e /srv/ci/downloads/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv
+      - name: Timers, status, undo
+        run: |
+          sudo mediaorg service install --enable
+          systemctl list-timers 'mediaorg*' --no-pager
+          sudo mediaorg status
+          sudo systemctl disable --now mediaorg.timer   # no timer run may race the checks below
+          run_id=$(sudo mediaorg runs --limit 1 | cut -d' ' -f1)
+          sudo mediaorg undo "$run_id" --apply
+          test -f /srv/ci/downloads/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv
+      - name: Uninstall
+        run: |
+          sudo bash /opt/mediaorg/install.sh --uninstall --purge
+          if id mediaorg 2>/dev/null; then echo "account still there"; exit 1; fi
+          test ! -e /usr/local/bin/mediaorg
+          test ! -e /etc/systemd/system/mediaorg.service
+          test -f /srv/ci/downloads/Night.Harbor.S01E03.1080p.WEB.h264-GRP.mkv   # media untouched

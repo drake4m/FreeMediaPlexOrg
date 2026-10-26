@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freemediaplexorg"
+dynamic = ["version"]
+description = "Files finished movie and TV downloads into a tidy library, safely (Freebox or any download client; tinyMediaManager integration)."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "FreeMediaPlexOrg contributors" }]
+keywords = ["media", "organizer", "movies", "tv", "plex", "freebox", "tinymediamanager", "downloads"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Video",
+    "Topic :: System :: Archiving",
+]
+# exact, hash-checked versions for installs: requirements.lock (install.sh uses it)
+dependencies = ["guessit>=3.8,<5"]
+
+[project.urls]
+Homepage = "https://github.com/drake4m/FreeMediaPlexOrg"
+Documentation = "https://github.com/drake4m/FreeMediaPlexOrg/tree/main/docs"
+Issues = "https://github.com/drake4m/FreeMediaPlexOrg/issues"
+Changelog = "https://github.com/drake4m/FreeMediaPlexOrg/blob/main/CHANGELOG.md"
+
+[project.scripts]
+mediaorg = "mediaorg.cli:main"
+
+[tool.setuptools]
+packages = ["mediaorg"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mediaorg.__version__" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "S", "PL"]
+ignore = [
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",  # complexity counters: the planner is deliberately explicit
+    "PLC0415",  # imports inside functions keep the command line fast to start
+    "S603", "S607",  # subprocess with fixed argument lists (systemctl)
+    "S108",  # /tmp paths in tests
+    "B905", "PLW2901", "PLW0603", "E731", "PLR0917",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S103", "S104", "S105", "S106", "S310", "S324", "S311", "B007", "B017", "E501", "PLR1714",
+             "PLW1510", "PLW0108", "S604", "S602"]
+"tools/*" = ["E402"]

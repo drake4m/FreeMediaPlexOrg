@@ -1,0 +1,9 @@
+# Text files are stored with LF line endings (shell scripts and unit files must never get CRLF).
+* text=auto eol=lf
+*.pem text eol=lf
+
+# Not part of the release tarball (tools/build-release.sh uses `git archive`).
+.github/ export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
+.editorconfig export-ignore

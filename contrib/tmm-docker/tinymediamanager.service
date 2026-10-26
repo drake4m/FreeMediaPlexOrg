@@ -1,0 +1,56 @@
+[Unit]
+Description=tinyMediaManager (official Docker image; web UI on TMM_UI_BIND:4000, HTTP API on 127.0.0.1:7878)
+Documentation=https://github.com/drake4m/FreeMediaPlexOrg/blob/main/docs/TMM.md https://www.tinymediamanager.org/docs/docker
+Requires=docker.service
+Wants=network-online.target
+After=docker.service network-online.target remote-fs.target
+# Retry forever (every RestartSec) instead of giving up: after a power cut the machine may boot before
+# the NAS, so the library can be missing for a few minutes.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Defaults; /etc/tmm/tmm.conf (written by setup-tmm.sh) overrides them.
+#   TMM_IMAGE          image, pinned by digest
+#   TMM_DATA           host folder for tMM's settings and database (container /data)
+#   TMM_MOVIES         movie library (container /media/movies)
+#   TMM_SERIES         TV library (container /media/series)
+#   TMM_REQUIRE_MOUNT  a mount point that must be mounted before tMM starts ("" = none)
+#   TMM_UI_BIND        address of the web UI (port 4000): 127.0.0.1 = this machine only
+#   TMM_DNS_OPTS       "--dns <IPv4>" pairs for the container, "" = Docker's default
+Environment=TMM_UI_BIND=127.0.0.1
+Environment=TMM_DNS_OPTS=
+Environment=TMM_REQUIRE_MOUNT=
+EnvironmentFile=/etc/tmm/tmm.conf
+# Refuse an empty or malformed address: "-p :4000:4000" would publish the web UI on every interface.
+# The whole value is checked as one record (printf, grep -z): a second line cannot slip through.
+ExecStartPre=/bin/sh -c 'printf "%%s" "$$TMM_UI_BIND" | grep -zEqx "((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])" || { echo "TMM_UI_BIND must be an IPv4 address (127.0.0.1 or 0.0.0.0), got: \"$$TMM_UI_BIND\"" >&2; exit 1; }'
+# TMM_DNS_OPTS is passed to docker run word by word: only "--dns <IPv4>" pairs are accepted.
+ExecStartPre=/bin/sh -c '[ -z "$$TMM_DNS_OPTS" ] || printf "%%s" "$$TMM_DNS_OPTS" | grep -zEqx "( *--dns +((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])( +--dns +((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9]))*)? *" || { echo "TMM_DNS_OPTS must be empty or --dns <IPv4> pairs, got: \"$$TMM_DNS_OPTS\"" >&2; exit 1; }'
+# The folders must be absolute, exist, and hold no ":" or "," (docker volume syntax); the library must be
+# mounted when it lives on its own mount (never start tMM on an empty mount point).
+ExecStartPre=/bin/sh -c 'for d in "$$TMM_DATA" "$$TMM_MOVIES" "$$TMM_SERIES"; do case "$$d" in /*) ;; *) echo "not an absolute path: \"$$d\"" >&2; exit 1;; esac; case "$$d" in *:*|*,*) echo "path must not contain : or ,: $$d" >&2; exit 1;; esac; [ -d "$$d" ] || { echo "missing folder: $$d" >&2; exit 1; }; done; [ -z "$$TMM_REQUIRE_MOUNT" ] || /usr/bin/mountpoint -q "$$TMM_REQUIRE_MOUNT" || { echo "$$TMM_REQUIRE_MOUNT is not mounted" >&2; exit 1; }'
+ExecStartPre=-/usr/bin/docker rm -f tinymediamanager
+# Container environment (USER_ID, GROUP_ID, PASSWORD, TZ, locale) comes from a root-only file, so the
+# web-UI password never appears on a command line. Automatic image updaters (Watchtower) are told to
+# leave this pinned container alone. Output reaches the journal through the attached client (log driver
+# none = no unbounded second copy on disk); tMM's own rotating log files are in $TMM_DATA/logs.
+ExecStart=/usr/bin/docker run --rm --name tinymediamanager --pull=never $TMM_DNS_OPTS \
+  --label com.centurylinklabs.watchtower.enable=false \
+  --env-file /etc/tmm/container.env \
+  -p ${TMM_UI_BIND}:4000:4000 -p 127.0.0.1:7878:7878 \
+  -v ${TMM_DATA}:/data \
+  -v ${TMM_MOVIES}:/media/movies \
+  -v ${TMM_SERIES}:/media/series \
+  --log-driver=none \
+  ${TMM_IMAGE}
+ExecStop=/usr/bin/docker stop --time 60 tinymediamanager
+# 143 = container stopped by SIGTERM (normal on stop)
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=60
+TimeoutStartSec=10min
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

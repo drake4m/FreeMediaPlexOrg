@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.venv/
+venv/
+
+# tools
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# release builds (tools/build-release.sh)
+dist/
+
+# editors and systems
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/

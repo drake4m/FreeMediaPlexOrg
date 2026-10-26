@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a change or a new capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What do you need to do that mediaorg does not allow today? Example download or folder names help (invented ones are fine).
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety
+      description: Could the change move, overwrite or delete something it should not? How should mediaorg behave when it is unsure?
