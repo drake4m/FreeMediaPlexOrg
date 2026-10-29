@@ -61,6 +61,10 @@ class Naming:
     series_folder: str = "{title} ({year})"
     series_folder_no_year: str = "{title}"
     season_folder: str = "Season {season}"
+    # new movie and show folders get " [mediaorg]" until tinyMediaManager renames them (tmm.enabled only), so
+    # that tMM's rename never only changes the letter case, which tMM cannot do on Linux on a case-insensitive
+    # share (SMB/CIFS)
+    tmm_staging: bool = False
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,9 @@ class Completeness:
     method: str = "quiescence"  # quiescence | freebox
     min_quiet_minutes: int = 10
     temp_extensions: tuple[str, ...] = (".part", ".!qb", ".crdownload", ".tmp", ".partial", ".!ut", ".aria2")
-    on_seeding: str = "wait"  # only "wait" is implemented
+    # a finished BitTorrent download still seeding: "wait" until the Freebox says done (its stop ratio), or
+    # "stop" it when a run files it (method "freebox" only)
+    on_seeding: str = "wait"
     # Items in Downloads that the Freebox does not list as a task (method "freebox" only):
     # "wait" = never move them (safe default); "quiescence" = move after min_quiet_minutes.
     untracked: str = "wait"
@@ -467,8 +473,8 @@ def from_dict(data: dict, source_file: str = "<dict>") -> Config:
         raise ConfigError(f"completeness.method must be 'freebox' or 'quiescence', got {comp.method!r}")
     if comp.untracked not in ("wait", "quiescence"):
         raise ConfigError("completeness.untracked must be 'wait' or 'quiescence'")
-    if comp.on_seeding != "wait":
-        raise ConfigError("completeness.on_seeding: only 'wait' is supported")
+    if comp.on_seeding not in ("wait", "stop"):
+        raise ConfigError(f"completeness.on_seeding must be 'wait' or 'stop', got {comp.on_seeding!r}")
     if comp.min_quiet_minutes < 5:
         raise ConfigError("completeness.min_quiet_minutes must be an integer >= 5")
 

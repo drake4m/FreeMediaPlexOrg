@@ -52,7 +52,7 @@ jobs:
           python -m pip install --disable-pip-version-check ruff==0.16.9
           ruff check .
       - name: shellcheck
-        run: shellcheck -S style install.sh contrib/tmm-docker/setup-tmm.sh tools/build-release.sh
+        run: shellcheck -S style install.sh contrib/tmm-docker/setup-tmm.sh contrib/fix-case-renames.sh tools/build-release.sh
 
   install:
     name: release tarball, install.sh and the systemd service

@@ -5,7 +5,9 @@ them in Downloads (and download them again).  Hence:
 
   * method "freebox": the Freebox task status is authoritative for items it knows.
     Ready only when the task is `done`, or `stopped` at 100 %.  `seeding` waits
-    (on_seeding = "wait").  Files the task did not fully receive are blocked.
+    (on_seeding = "wait"), or, with on_seeding = "stop", a run that files the item stops the
+    task first (stop_seeding) and files it once the Freebox lists it as stopped.  Files the
+    task did not fully receive are blocked.
   * items the Freebox does not list (copied manually) and method "quiescence":
     nothing modified for min_quiet_minutes and no temporary download extensions.
 """
@@ -25,8 +27,10 @@ from .model import Item, Readiness
 log = logging.getLogger(__name__)
 
 READY_STATUSES = {"done"}
+STOP_CONFIRM_SECONDS = 15  # how long a run waits for the Freebox to list a stopped task as "stopped"
 WAIT_REASON = {
-    "seeding": "Freebox task is seeding (waits for 'done'; set a seeding ratio/time limit on the Freebox)",
+    "seeding": "Freebox task is seeding (waits for 'done' at the Freebox stop ratio; "
+               "completeness.on_seeding = \"stop\" stops it when it is filed)",
     "downloading": "Freebox task is downloading",
     "queued": "Freebox task is queued",
     "starting": "Freebox task is starting",
@@ -184,9 +188,15 @@ class FreeboxState:
             return None
         return _nfc(self.cfg.paths.downloads + rp[len(self.remote_dir):])
 
-    def _task_check(self, tasks: list[Task], blocked: set[str]) -> str | None:
+    def _stoppable(self, t: Task) -> bool:
+        """A finished download that is only seeding, and on_seeding = "stop" lets a run stop it."""
+        return self.cfg.completeness.on_seeding == "stop" and t.status == "seeding" and t.rx_pct >= 10000
+
+    def _task_check(self, tasks: list[Task], blocked: set[str], stop: set[int]) -> str | None:
         for t in tasks:
-            if not (t.status in READY_STATUSES or (t.status == "stopped" and t.rx_pct >= 10000)):
+            if self._stoppable(t):
+                stop.add(t.id)
+            elif not (t.status in READY_STATUSES or (t.status == "stopped" and t.rx_pct >= 10000)):
                 return WAIT_REASON.get(t.status, f"Freebox task status '{t.status}'")
             for f in self._task_files(t):
                 if f.priority == "no_dl" or f.rx < f.size:
@@ -198,9 +208,10 @@ class FreeboxState:
     def assess(self, item: Item, now: float | None = None) -> Readiness:
         now = time.time() if now is None else now
         blocked: set[str] = set()
+        stop: set[int] = set()
         tasks = self._tasks_for(item.name, loose=not item.is_dir)
         if tasks:
-            why = self._task_check(tasks, blocked)
+            why = self._task_check(tasks, blocked, stop)
             if why:
                 return Readiness(False, why)
             reason = "Freebox: " + ", ".join(sorted({t.status for t in tasks}))
@@ -219,12 +230,90 @@ class FreeboxState:
                 continue
             extra = self._tasks_for(f.name, loose=True)
             if extra:
-                why = self._task_check(extra, blocked)
+                why = self._task_check(extra, blocked, stop)
                 if why:
                     return Readiness(False, f"attached {f.name!r}: {why}")
             elif (now - f.mtime) / 60 < self.cfg.completeness.min_quiet_minutes:
                 return Readiness(False, f"attached {f.name!r} modified recently")
-        return Readiness(True, reason, frozenset(blocked))
+        return Readiness(True, reason, frozenset(blocked), frozenset(stop))
+
+
+def _finished(t: Task) -> bool:
+    return t.status in ("stopped", *READY_STATUSES) and t.rx_pct >= 10000
+
+
+def stop_seeding(client: FreeboxClient, task_ids, timeout_s: float | None = None, sleep=None,
+                 names: dict[int, str] | None = None) -> tuple[bool, str]:
+    """Stop Freebox tasks that are seeding a finished download (completeness.on_seeding = "stop"), then wait
+    until the Freebox lists each one as stopped (or done) at 100 %.  The state is read again first: only a
+    task that is still seeding at 100 % is stopped (never one that went back to downloading or checking).
+    -> (True, what was done) or (False, why the item waits: it is not filed in this run).
+    FreeboxError (the box does not answer) is left to the caller."""
+    ids = sorted(set(task_ids))
+    names = names or {}
+    timeout_s = STOP_CONFIRM_SECONDS if timeout_s is None else timeout_s
+    sleep = sleep or time.sleep
+
+    def listed() -> tuple[dict[int, Task], str | None]:
+        now = {t.id: t for t in client.tasks() if t.id in ids}
+        gone = [tid for tid in ids if tid not in now]
+        return now, (f"Freebox task {gone[0]} is gone (removed meanwhile?); the next run looks again" if gone
+                     else None)
+
+    now, why = listed()
+    if why:
+        return False, why
+    # all or nothing as far as the box allows: no task is stopped unless every task of the item is finished
+    # or seeding at 100 % now
+    for tid in ids:
+        t = now[tid]
+        if not (_finished(t) or (t.status == "seeding" and t.rx_pct >= 10000)):
+            return False, f"Freebox task {tid} is now '{t.status}'; the next run looks again"
+    stopped: list[int] = []
+    for tid in (i for i in ids if not _finished(now[i])):
+        try:
+            client.stop_task(tid)
+        except FreeboxApiError as exc:
+            if stopped:
+                log.warning("Freebox task(s) %s stopped, but not task %s (%s): the item waits; stopped tasks stay "
+                            "stopped", ", ".join(map(str, stopped)), tid, exc)
+            if exc.code == "task_not_found":
+                return False, f"Freebox task {tid} is gone (removed meanwhile?); the next run looks again"
+            return False, f"Freebox task {tid} could not be stopped ({exc}); it keeps seeding"
+        stopped.append(tid)
+        log.info("Freebox task %s (%r) was seeding a finished download: stop requested", tid, names.get(tid, "?"))
+    if stopped:
+        now, why = listed()
+        if why:
+            return False, why
+    deadline = time.monotonic() + timeout_s
+    while True:
+        pending = [t for t in now.values() if not _finished(t)]
+        if not pending:
+            return True, f"Freebox task {', '.join(map(str, ids))} was seeding: stopped"
+        if time.monotonic() >= deadline:
+            t = pending[0]
+            return False, (f"Freebox task {t.id} is still '{t.status}' {timeout_s:g} s after the stop request; "
+                           "filed by a later run once it is stopped")
+        sleep(1)
+        now, why = listed()
+        if why:
+            return False, why
+
+
+def freebox_session(cfg: Config, client_factory=None) -> FreeboxClient:
+    """A logged-in Freebox client (the caller logs out)."""
+    from .freebox import load_token
+
+    token = load_token(cfg.freebox.token_file)
+    client = client_factory() if client_factory else FreeboxClient(
+        cfg.freebox.base_url, cfg.freebox.ca_file, cfg.freebox.timeout_seconds)
+    try:
+        client.login(token["app_id"], token["app_token"])
+    except FreeboxError:
+        client.logout()  # a session opened without the downloader permission is closed too
+        raise
+    return client
 
 
 def make_assessor(cfg: Config, client_factory=None):
@@ -232,14 +321,10 @@ def make_assessor(cfg: Config, client_factory=None):
     if cfg.completeness.method == "quiescence":
         return (lambda item: quiescence(item, cfg)), (lambda: None)
     from .config import ConfigError
-    from .freebox import load_token
 
     if not cfg.freebox.remote_downloads_dir:
         raise ConfigError("freebox.remote_downloads_dir is not set (see `sudo mediaorg freebox status`)")
-    token = load_token(cfg.freebox.token_file)
-    client = client_factory() if client_factory else FreeboxClient(
-        cfg.freebox.base_url, cfg.freebox.ca_file, cfg.freebox.timeout_seconds)
-    client.login(token["app_id"], token["app_token"])
+    client = freebox_session(cfg, client_factory)
     cache = FilesCache(os.path.join(cfg.paths.state_dir, "freebox_files.json"))
     try:
         # Fail closed if the configured folder is not the Freebox's download folder: otherwise

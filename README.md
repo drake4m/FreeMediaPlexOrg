@@ -17,10 +17,11 @@ Downloads/A.Film.2023.1080p.BluRay.x264/           ->  Movies/A Film (2023)/A.Fi
 An existing show folder is reused (here `Some Show (2019)`); a show the library does not have yet gets a new
 folder, `Some Show` when the release name has no year.
 
-It works with a **Freebox** (it asks the Freebox download manager whether a torrent is really finished)
-or with **any download client or manual copies** (a download counts as finished once its files stop
-changing). After each run it can ask **tinyMediaManager** to update its library, then scrape and rename
-only the new items.
+It works with a **Freebox** (it asks the Freebox download manager whether a torrent is really finished,
+and can stop a finished torrent's seeding when it files it) or with **any download client or manual
+copies** (a download counts as finished once its files stop changing). After each run it can ask
+**tinyMediaManager** to update its library, then scrape and rename only the new items, including on an
+SMB share where tMM alone cannot change only the letter case of a folder name.
 
 ## Why it is safe
 
@@ -53,7 +54,7 @@ only the new items.
 
 ```bash
 sudo apt install python3 python3-venv curl
-VER=2.0.0
+VER=2.1.0
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
 sha256sum -c freemediaplexorg-$VER.tar.gz.sha256 && tar -xzf freemediaplexorg-$VER.tar.gz

@@ -67,7 +67,9 @@ method = "quiescence"
 # move them; "quiescence" = move them after min_quiet_minutes. One of: wait, quiescence.
 # untracked = "wait"   (default)
 
-# Method "freebox": a task that is still seeding is never moved. One of: wait.
+# Method "freebox": a finished BitTorrent download that is still seeding. "wait" = moved once the
+# Freebox says done (at its stop ratio); "stop" = a run that files it stops the task first (it no
+# longer seeds), then moves it. One of: wait, stop.
 # on_seeding = "wait"   (default)
 
 # ------------------------------------------------------------------------------------------------
@@ -305,3 +307,9 @@ method = "quiescence"
 
 # Season folder inside a show folder.
 # season_folder = "Season {season}"   (default)
+
+# New movie and show folders end with " [mediaorg]" until tinyMediaManager renames them (with
+# tmm.enabled only; tMM ignores text in [...] when it reads the name). Needed when tMM runs on
+# Linux with the library on an SMB/CIFS share: there tMM cannot rename a folder whose new name
+# differs only in letter case ('Rise of the ...' -> 'Rise Of The ...').
+# tmm_staging = false   (default)

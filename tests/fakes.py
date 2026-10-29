@@ -52,9 +52,14 @@ class FakeFreebox(_Server):
     CHALLENGE = "challenge-123"
 
     def __init__(self, tasks=(), files=None, permissions=None, auth_states=("pending", "granted"),
-                 download_dir="/Freebox/Downloads", stop_ratio=10):
+                 download_dir="/Freebox/Downloads", stop_ratio=10, on_stop="stopped"):
         self.download_dir = download_dir
         self.stop_ratio = stop_ratio
+        # PUT downloads/{id} {"status": "stopped"}: the task becomes "stopped" ("stopped"), stays "stopping"
+        # ("stopping"), the call fails with an API error ("refuse", or only for the ids in refuse_ids), or the
+        # answer is cut short ("truncate")
+        self.on_stop = on_stop
+        self.refuse_ids: set[int] = set()
         self.tasks = list(tasks)
         self.files = files or {}
         self.permissions = permissions if permissions is not None else {"downloader": True, "settings": False}
@@ -106,6 +111,35 @@ class FreeboxHandler(_Handler):
                                                                  "permissions": fb.permissions}})
         if self.path == "/api/v15/login/logout/":
             return self._send(200, {"success": True})
+        return self._send(404, {"success": False, "error_code": "invalid_request"})
+
+    def do_PUT(self):
+        fb = self.server.fake
+        body = self._body()
+        fb.requests.append(("PUT", self.path, body))
+        if not self._authed():
+            return self._send(403, {"success": False, "error_code": "auth_required", "msg": "Non autorisé"})
+        parts = self.path.strip("/").split("/")  # api, v15, downloads, <id>
+        if len(parts) == 4 and parts[:3] == ["api", "v15", "downloads"] and parts[3].isdigit():
+            task = next((t for t in fb.tasks if t["id"] == int(parts[3])), None)
+            if task is None:
+                return self._send(404, {"success": False, "error_code": "task_not_found", "msg": "Tâche inconnue"})
+            if body != {"status": "stopped"}:
+                return self._send(400, {"success": False, "error_code": "invalid_request"})
+            if fb.on_stop == "refuse" or task["id"] in fb.refuse_ids:
+                return self._send(403, {"success": False, "error_code": "insufficient_rights", "msg": "Accès refusé"})
+            if fb.on_stop == "truncate":
+                task["status"] = "stopped"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "500")
+                self.end_headers()
+                self.wfile.write(b'{"success": tr')
+                self.wfile.flush()
+                self.close_connection = True
+                return None
+            task["status"] = "stopped" if fb.on_stop == "stopped" else "stopping"
+            return self._send(200, {"success": True, "result": task})
         return self._send(404, {"success": False, "error_code": "invalid_request"})
 
 

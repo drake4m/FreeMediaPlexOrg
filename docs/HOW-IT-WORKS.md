@@ -36,7 +36,9 @@ that has a year (unless the file names another year); otherwise file and folder 
 
 An existing library folder is reused when exactly one fits: a show folder with or without year, a movie
 folder with the same year, or the only folder of that title if it has no year yet. Otherwise a new one is
-created as `Title (Year)` (`Title` when no year is known; the names come from `[naming]`).
+created as `Title (Year)` (`Title` when no year is known; the names come from `[naming]`). With
+`naming.tmm_staging` and tMM enabled, a new folder is `Title (Year) [mediaorg]` until tinyMediaManager
+renames it ([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)).
 
 | What arrives in Downloads | Where it goes |
 |---|---|
@@ -117,8 +119,9 @@ Enforced in code and covered by the test suite:
    copy of an episode or movie filed in the same run waits for the next run, so a duplicate is always judged
    against a file that is really in the library.
 6. **Finished first.** A download is touched only once it is finished: the Freebox reports the task done
-   (and no longer seeding), or none of its files changed for `completeness.min_quiet_minutes` and none has a
-   temporary extension.
+   (and no longer seeding; with `completeness.on_seeding = "stop"`, a run that files it stops the seeding
+   and moves it only once the Freebox lists the task as stopped), or none of its files changed for
+   `completeness.min_quiet_minutes` and none has a temporary extension.
 7. **Changed since the scan.** A file that changed between the scan and the move is not moved or deleted,
    and a Downloads folder whose content changed is not touched at all in that run.
 8. **Journal.** Every move and deletion is written (and flushed to disk) to the journal before it

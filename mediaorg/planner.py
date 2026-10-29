@@ -23,7 +23,7 @@ from .identify import guess, identify_video, is_bonus, is_sample, is_weak_movie
 from .library import PLANNED, Library, compare_files, is_library_extra
 from .matching import Match, match_movie, match_series
 from .model import FileDecision, FileEntry, Item, ItemPlan, MediaId, Op, Readiness
-from .normalize import UnsafeName, norm, safe_component, smart_title
+from .normalize import STAGING_TAG, UnsafeName, norm, safe_component, smart_title
 from .review import disposable, human, video_like
 from .scan import is_archive
 
@@ -64,6 +64,8 @@ class Planner:
         self.compare_cache = compare_cache if compare_cache is not None else {}
         self.used_compare_keys: set[str] = set()
         self.on_compare = on_compare  # called after each new comparison: a long run killed later keeps them
+        # naming.tmm_staging: new folders carry the staging tag until tMM renames them (only tMM removes it)
+        self.staging = cfg.naming.tmm_staging and cfg.tmm.enabled
 
     # ------------------------------------------------------------------ classification
     def _is_extra(self, f: FileEntry, largest_other: int) -> bool:
@@ -127,6 +129,19 @@ class Planner:
             return False
         self._review_targets.add(key)
         return True
+
+    def _new_folder(self, root: str, tmpl: str, m: MediaId, what: str) -> tuple[str | None, str]:
+        """-> (name of a new show/movie folder, '') or (None, why it cannot be created).  With naming.tmm_staging
+        the name ends with the staging tag; a folder with the name it will get from tMM must not exist either."""
+        try:
+            base = safe_component(tmpl.format(title=smart_title(m.display_title), year=m.year))
+            name = safe_component(f"{base} {STAGING_TAG}") if self.staging else base
+        except UnsafeName as exc:
+            return None, f"cannot build {what} folder name: {exc}"
+        for n in dict.fromkeys((base, name)):
+            if self.lib.exists_name(root, n):
+                return None, f"a folder named {n!r} exists but did not match by title"
+        return name, ""
 
     @staticmethod
     def _empty_tree(item: Item) -> bool:
@@ -214,12 +229,9 @@ class Planner:
             return FileDecision(f, "skip", f"show folder {match.describe()}", m)
         if match.status == "new":
             tmpl = self.cfg.naming.series_folder if m.year else self.cfg.naming.series_folder_no_year
-            try:
-                name = safe_component(tmpl.format(title=smart_title(m.display_title), year=m.year))
-            except UnsafeName as exc:
-                return FileDecision(f, "skip", f"cannot build show folder name: {exc}", m)
-            if self.lib.exists_name(root, name):
-                return FileDecision(f, "skip", f"a folder named {name!r} exists but did not match by title", m)
+            name, why = self._new_folder(root, tmpl, m, "show")
+            if name is None:
+                return FileDecision(f, "skip", why, m)
             show = os.path.join(root, name)
             note = f"new show folder {name!r}"
             new_show = name
@@ -296,12 +308,9 @@ class Planner:
             return FileDecision(f, "skip", f"movie folder {match.describe()}", m)
         if match.status == "new":
             tmpl = self.cfg.naming.movie_folder if m.year else self.cfg.naming.movie_folder_no_year
-            try:
-                name = safe_component(tmpl.format(title=smart_title(m.display_title), year=m.year))
-            except UnsafeName as exc:
-                return FileDecision(f, "skip", f"cannot build movie folder name: {exc}", m)
-            if self.lib.exists_name(root, name):
-                return FileDecision(f, "skip", f"a folder named {name!r} exists but did not match by title", m)
+            name, why = self._new_folder(root, tmpl, m, "movie")
+            if name is None:
+                return FileDecision(f, "skip", why, m)
             folder = os.path.join(root, name)
             note, new_folder = f"new movie folder {name!r}", name
             if m.year is None:
@@ -540,6 +549,7 @@ class Planner:
         if item.problems:  # symlink, unreadable entry, invalid name: even "no video" may be wrong
             plan.reason = "item left untouched: " + "; ".join(item.problems[:3])
             return plan
+        plan.stop_tasks = readiness.stop_tasks if readiness.ready else frozenset()
         if self._empty_tree(item):  # nothing in it, but removed only once the download client is done
             if not readiness.ready:
                 plan.status, plan.reason = "wait", readiness.reason

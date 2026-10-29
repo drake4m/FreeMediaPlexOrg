@@ -3,7 +3,7 @@
 ## Between 2.x releases
 
 ```bash
-VER=2.0.1     # the new version
+VER=2.1.0     # the new version
 cd /tmp
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
@@ -30,6 +30,15 @@ Back to the previous version: `sudo bash /opt/mediaorg/install.sh --rollback`. I
 restores that version's systemd units (enabled timers stay enabled). If you changed the configuration
 with the new version, restore `/etc/mediaorg/config.toml.bak` first. Read the
 [CHANGELOG](../CHANGELOG.md) for changes of behaviour before upgrading.
+
+### 2.0.x to 2.1.0
+
+Nothing to change: the two new settings, `completeness.on_seeding = "stop"`
+([FREEBOX.md](FREEBOX.md#stop-seeding-when-a-download-is-filed)) and `naming.tmm_staging`
+([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)), are off until you set them. Before rolling
+back to 2.0.x, unset them (`sudo mediaorg config unset completeness.on_seeding naming.tmm_staging`): 2.0.x
+refuses a configuration that has them, and does not recognise folders that still end with `[mediaorg]`
+(it would create a second folder for the same title).
 
 ## From 1.x
 

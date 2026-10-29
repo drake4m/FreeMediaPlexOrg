@@ -11,6 +11,7 @@ import time
 import unittest
 from unittest import mock
 
+from mediaorg import __version__
 from mediaorg.guards import MountEntry
 from mediaorg.report import prune_reports
 from mediaorg.transfer import Journal, prune_journals
@@ -187,7 +188,7 @@ class TestStatusAndCheck(unittest.TestCase):
             run_cli("-c", path, "run", "--apply")
             code, out = run_cli("-c", path, "status")
         self.assertEqual(code, 0, out)
-        self.assertIn("mediaorg 2.0.0", out)
+        self.assertIn(f"mediaorg {__version__}", out)
         self.assertIn(f"downloads  {self.nas.dl}", out)
         self.assertIn("finished downloads: unchanged for 30 min", out)
         self.assertIn("systemd is not running here", out)

@@ -10,6 +10,10 @@ _APOSTROPHES = re.compile(r"['’‘`´]")
 _NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
 _WS = re.compile(r"\s+")
 _YEAR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\((?P<year>\d{4})\)\s*$")
+# naming.tmm_staging: new library folders are named 'Title (Year) [mediaorg]' until tinyMediaManager renames
+# them (tMM ignores text in [...] when it reads a folder name)
+STAGING_TAG = "[mediaorg]"
+_STAGING_SUFFIX = re.compile(r"\s*\[mediaorg\]\s*$", re.IGNORECASE)
 _RESERVED = re.compile(r'[\\/*?"<>|\x00-\x1f]')
 _ARTICLE = re.compile(r"^the ")
 _SEASON_DIR = re.compile(
@@ -77,8 +81,19 @@ def make_keys(*variants: str) -> Keys:
     return Keys(frozenset(exact), frozenset(noart), frozenset(compact))
 
 
+def unstaged(name: str) -> str:
+    """The folder name without mediaorg's staging tag: 'Brimstone (1999) [mediaorg]' -> 'Brimstone (1999)'."""
+    return _STAGING_SUFFIX.sub("", name)
+
+
+def is_staged(name: str) -> bool:
+    return bool(_STAGING_SUFFIX.search(name))
+
+
 def split_folder_name(name: str) -> tuple[str, int | None]:
-    """'Brimstone (1999)' -> ('Brimstone', 1999); 'Glass Town' -> ('Glass Town', None)."""
+    """'Brimstone (1999)' -> ('Brimstone', 1999); 'Glass Town' -> ('Glass Town', None); a staging tag
+    ('Brimstone (1999) [mediaorg]') is not part of the title."""
+    name = unstaged(name)
     m = _YEAR_SUFFIX.match(name)
     if m:
         return m.group("title").strip(), int(m.group("year"))

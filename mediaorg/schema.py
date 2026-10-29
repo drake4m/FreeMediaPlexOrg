@@ -106,8 +106,9 @@ KEYS: list[Key] = [
     Key("completeness", "untracked", "enum", "Method \"freebox\": entries the Freebox does not list as a task "
         "(copied by hand). \"wait\" = never move them; \"quiescence\" = move them after min_quiet_minutes.",
         choices=("wait", "quiescence")),
-    Key("completeness", "on_seeding", "enum", "Method \"freebox\": a task that is still seeding is never moved.",
-        choices=("wait",), advanced=True),
+    Key("completeness", "on_seeding", "enum", "Method \"freebox\": a finished BitTorrent download that is still "
+        "seeding. \"wait\" = moved once the Freebox says done (at its stop ratio); \"stop\" = a run that files it "
+        "stops the task first (it no longer seeds), then moves it.", choices=("wait", "stop")),
     # [freebox]
     Key("freebox", "remote_downloads_dir", "str", "The Freebox's own path of paths.downloads, exactly as "
         "`mediaorg freebox status` prints it. A run that needs the Freebox's verdict stops (nothing moved) "
@@ -197,6 +198,10 @@ KEYS: list[Key] = [
     Key("naming", "series_folder", "str", "New show folder."),
     Key("naming", "series_folder_no_year", "str", "New show folder when the release has no year."),
     Key("naming", "season_folder", "str", "Season folder inside a show folder."),
+    Key("naming", "tmm_staging", "bool", "New movie and show folders end with \" [mediaorg]\" until "
+        "tinyMediaManager renames them (with tmm.enabled only; tMM ignores text in [...] when it reads the "
+        "name). Needed when tMM runs on Linux with the library on an SMB/CIFS share: there tMM cannot rename a "
+        "folder whose new name differs only in letter case ('Rise of the ...' -> 'Rise Of The ...')."),
 ]
 
 BY_NAME = {k.dotted: k for k in KEYS}
