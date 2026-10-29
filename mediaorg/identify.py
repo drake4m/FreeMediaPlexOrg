@@ -109,6 +109,7 @@ def from_guess(g: dict, source: str = "file") -> IdResult:
     others = _as_list(g.get("other"))
     proper = "Proper" in others or bool(g.get("proper_count"))
     part = bool(g.get("_part"))
+    edition = ", ".join(str(e) for e in _as_list(g.get("edition"))) or None
     if _EXTRA_OTHERS & set(others):
         return IdResult(None, "extras or bonus material, not the episode or movie itself")
     year = g.get("year")
@@ -151,6 +152,7 @@ def from_guess(g: dict, source: str = "file") -> IdResult:
                 proper=proper,
                 source=source,
                 part=part,
+                edition=edition,
             )
         )
 
@@ -177,6 +179,7 @@ def from_guess(g: dict, source: str = "file") -> IdResult:
                 proper=proper,
                 source=source,
                 part=part,
+                edition=edition,
             )
         )
     return IdResult(None, f"not recognised as movie or episode (type={kind!r})")

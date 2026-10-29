@@ -84,11 +84,11 @@ take_run_lock() {   # waits up to 15 min for a running job; released when this s
   flock -w 900 9 || die "a mediaorg run has held $lock for 15 min; try again later" 4
 }
 
-# Can the mediaorg in app folder $1 read the configuration in force?  Exit 0 = yes, 1 = no (why is
+# Can the mediaorg in app folder $1 read the configuration file $2?  Exit 0 = yes, 1 = no (why is
 # printed), anything else = could not tell (a version without this API).
 reads_config() {
-  [ -f "$MAIN_CFG" ] || return 0
-  "$PREFIX/venv/bin/python" -I - "$1" "$MAIN_CFG" <<'PY' 2>&1
+  [ -f "$2" ] || return 0
+  "$PREFIX/venv/bin/python" -I - "$1" "$2" <<'PY' 2>&1
 import sys
 sys.path.insert(0, sys.argv[1])
 try:
@@ -113,23 +113,31 @@ if [ "$MODE" = rollback ]; then
   CUR=$(version_of "$PREFIX/app")
   OLD=$(version_of "$PREFIX/app.old")
   take_run_lock "$(state_dir)"
-  # the older version must read the configuration, or every one of its runs would stop at once
-  rc=0
-  why=$(reads_config "$PREFIX/app.old") || rc=$?
-  if [ "$rc" = 1 ]; then
-    die "mediaorg ${OLD:-?} cannot read $MAIN_CFG: $why
+  # the older version must read the configuration (the units' and the default one), or its runs would stop
+  CFGS=("$MAIN_CFG")
+  [ "$ETC/config.toml" = "$MAIN_CFG" ] || CFGS+=("$ETC/config.toml")
+  READ_OK=()
+  for c in "${CFGS[@]}"; do
+    [ -f "$c" ] || continue
+    rc=0
+    why=$(reads_config "$PREFIX/app.old" "$c") || rc=$?
+    if [ "$rc" = 0 ]; then
+      READ_OK+=("$c")
+    elif [ "$rc" = 1 ]; then
+      die "mediaorg ${OLD:-?} cannot read $c: $why
    Nothing was changed. First set the settings it does not know back to their defaults, with the
-   installed version: sudo mediaorg config unset <section.key> (docs/UPGRADING.md lists them), then run
-   the rollback again." 3
-  elif [ "$rc" != 0 ]; then
-    say "   WARNING: could not check that mediaorg ${OLD:-?} reads $MAIN_CFG (${why:-no answer})"
-  fi
+   installed version: sudo mediaorg --config $c config unset <section.key> (docs/UPGRADING.md lists them),
+   then run the rollback again." 3
+    else
+      say "   WARNING: could not check that mediaorg ${OLD:-?} reads $c (${why:-no answer})"
+    fi
+  done
   rm -rf "$PREFIX/app.rollback"
   [ -d "$PREFIX/app" ] && mv -T "$PREFIX/app" "$PREFIX/app.rollback"
   mv -T "$PREFIX/app.old" "$PREFIX/app"
   [ -d "$PREFIX/app.rollback" ] && mv -T "$PREFIX/app.rollback" "$PREFIX/app.old"
   say "== ROLLBACK OK: $CUR -> $("$PREFIX/bin/mediaorg" --version) (the rolled-back version is now in app.old)"
-  if [ "$rc" = 0 ] && [ -f "$MAIN_CFG" ]; then say "   $MAIN_CFG: read by the rolled-back version"; fi
+  for c in "${READ_OK[@]}"; do say "   $c: read by the rolled-back version"; done
   if units_installed && [ -d /run/systemd/system ]; then
     if [ -f "$PREFIX/app/systemd/mediaorg.service" ]; then   # 1.x shipped fixed unit files
       for u in mediaorg.service mediaorg.timer mediaorg-tmm-sync.service mediaorg-tmm-sync.timer; do

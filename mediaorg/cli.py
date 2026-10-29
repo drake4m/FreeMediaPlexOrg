@@ -189,6 +189,9 @@ def cmd_run(cfg: Config, args) -> int:
             except (OSError, LibraryUnstable) as exc:
                 log.error("precondition failed: %s", exc)
                 return EXIT_PRECONDITION
+            if cfg.completeness.method == "freebox":
+                from .completeness import forget_absent
+                forget_absent(cfg)
             if args.only:
                 wanted = {unicodedata.normalize("NFC", n).casefold() for n in args.only}
                 items = [i for i in items if unicodedata.normalize("NFC", i.name).casefold() in wanted]
@@ -915,15 +918,17 @@ def cmd_check(cfg: Config, args) -> int:
 STAGING_GRACE_SECONDS = 86400  # a staged folder older than this: tMM has evidently not renamed it
 
 
-def _has_video(folder: str, exts, depth: int = 3) -> bool:
-    """Does `folder` hold a file with a video extension, at most `depth` levels down?"""
+def _has_video(folder: str, exts, depth: int = 3) -> bool | None:
+    """Does `folder` hold a file with a video extension, at most `depth` levels down? None: it could not be
+    read entirely (then it is not reported as holding no video)."""
+    errors: list[OSError] = []
     base = folder.rstrip(os.sep).count(os.sep)
-    for d, dirs, files in os.walk(folder):
+    for d, dirs, files in os.walk(folder, onerror=errors.append):
         if any(os.path.splitext(n)[1].lower() in exts for n in files):
             return True
         if d.rstrip(os.sep).count(os.sep) - base >= depth - 1:
             dirs[:] = []
-    return False
+    return None if errors else False
 
 
 def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> tuple[list[str], list[str]]:
@@ -931,7 +936,9 @@ def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> t
     video, unchanged for `older_than` seconds: tMM has not renamed them; those without any video file, which
     tMM ignores)."""
     from .normalize import is_staged
+    from .review import VIDEO_EXTS
 
+    exts = set(cfg.media.video_extensions) | VIDEO_EXTS  # any video container, configured or not
     now, stale, empty = time.time(), [], []
     for root in (cfg.paths.movies, cfg.paths.series):
         try:
@@ -941,9 +948,10 @@ def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> t
                         if not (e.is_dir(follow_symlinks=False) and is_staged(e.name)):
                             continue
                         rel = os.path.relpath(e.path, cfg.base_dir)
-                        if not _has_video(e.path, cfg.media.video_extensions):
+                        has = _has_video(e.path, exts)
+                        if has is False:
                             empty.append(rel)
-                        elif now - e.stat(follow_symlinks=False).st_mtime >= older_than:
+                        elif has and now - e.stat(follow_symlinks=False).st_mtime >= older_than:
                             stale.append(rel)
                     except OSError:
                         continue
@@ -985,7 +993,7 @@ def _check_seeding_and_staging(cfg: Config, line) -> None:
                      f"{shown(stale)}")
     if empty:
         line("warn", f"{len(empty)} folder(s) ending with ' {STAGING_TAG}' hold no video file, so tMM ignores them "
-                     f"(put the video back, or delete the folder): {shown(empty)}")
+                     f"(look at what they hold: was the video moved or deleted?): {shown(empty)}")
 
 
 def cmd_library(cfg: Config, args) -> int:

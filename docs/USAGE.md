@@ -114,11 +114,24 @@ the report; `review.delete_identical_duplicates = false` sends it to review inst
 
 To keep no duplicates at all, `sudo mediaorg config set review.delete_duplicates=true`: a download of an
 episode or movie the library already has is then deleted in the run that finds it, even when its bytes
-differ, as long as it is the same episode (or the same film of the same year), not a REPACK/PROPER, not one
-part of a split file, and not larger than the library copy (`delete ... not larger than the library copy:
-deleted from Downloads (review.delete_duplicates)`). A bigger or repaired copy may be the better one: it goes
-to review and is kept until you decide. Its subtitles are not put next to the library copy (they may not
-match it). Certain duplicates that earlier runs moved to review are deleted by the next run.
+differ, as long as it is the same episode (or the same film of the same year), not a REPACK/PROPER, not a
+special edition (Extended, Director's Cut...), not one part of a split file, and not larger than the library
+copy (`delete ... not larger than the library copy: deleted from Downloads (review.delete_duplicates)`).
+Right before the deletion every library file of that episode or film must still be there, unchanged. A
+bigger or repaired copy may be the better one: it goes to review and is kept until you decide. Its subtitles
+are not put next to the library copy (they may not match it): they go to `leftovers`. Certain duplicates
+that earlier runs moved to review are deleted by the next run.
+
+What "the same" means, so that you know what you give up:
+
+- An episode is matched by its show's title: its show folder is the one folder of that title, so a release
+  without a year is deleted. A release that names a year is kept unless the show folder has that same year
+  (an undated folder may hold another show of that title).
+- A film needs the year in the release name, equal to the movie folder's.
+- Languages and qualities are not compared: a smaller French copy of a film you have in English is deleted.
+  A copy with more audio tracks (`MULTi`) is usually bigger, and then kept.
+- `review.delete_identical_duplicates = false` cannot be combined with it (that would keep the identical
+  copies while deleting the others).
 
 Example, a second copy and a REPACK of an episode that is already filed:
 

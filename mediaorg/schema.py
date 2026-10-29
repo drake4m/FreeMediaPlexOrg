@@ -152,9 +152,10 @@ KEYS: list[Key] = [
         "copy is deleted: nothing is lost. false = move it to review instead."),
     Key("review", "delete_duplicates", "bool", "A download the library already has is deleted in the run that "
         "finds it, even when its bytes differ: the same episode, or the same film of the same year, not a "
-        "REPACK/PROPER, not one part of a split file, and not larger than the library copy. Other duplicates "
-        "(a bigger or repaired copy, a year that cannot be confirmed) go to review/duplicates and are kept "
-        "until you decide; certain duplicates that earlier runs moved there are deleted by the next run. "
+        "REPACK/PROPER, not a special edition, not one part of a split file, and not larger than the library "
+        "copy. Languages are not compared. Other duplicates (a bigger or repaired copy, a year that cannot be "
+        "confirmed) go to review/duplicates and are kept until you decide; certain duplicates that earlier runs "
+        "moved there are deleted by the next run. Needs delete_identical_duplicates = true. "
         "false = duplicates go to review/duplicates (duplicates_retention_days)."),
     Key("review", "duplicates_retention_days", "int", "Days after which the certain duplicates of a run are "
         "deleted from review/duplicates/ (0 = at the end of the run, -1 = never). Other duplicates are kept. "

@@ -58,8 +58,11 @@ class FakeFreebox(_Server):
         # PUT downloads/{id} {"status": "stopped"}: the task becomes "stopped" ("stopped"), stays "stopping"
         # ("stopping"), the call fails with an API error ("refuse", or only for the ids in refuse_ids), or the
         # answer is cut short ("truncate"); races: the task reached its stop ratio just before the call, which
-        # is refused ("finish": it is now "done"), or it was removed in Freebox OS ("vanish": task_not_found)
+        # is refused ("finish": it is now "done"), or it was removed in Freebox OS ("vanish": task_not_found),
+        # or the box answers task_not_found while it still lists the task seeding ("lost").
+        # before_stop(fake, task): called first, e.g. to change another task at that moment
         self.on_stop = on_stop
+        self.before_stop = None
         self.refuse_ids: set[int] = set()
         self.tasks = list(tasks)
         self.files = files or {}
@@ -127,6 +130,10 @@ class FreeboxHandler(_Handler):
                 return self._send(404, {"success": False, "error_code": "task_not_found", "msg": "Tâche inconnue"})
             if body != {"status": "stopped"}:
                 return self._send(400, {"success": False, "error_code": "invalid_request"})
+            if fb.before_stop:
+                fb.before_stop(fb, task)
+            if fb.on_stop == "lost":
+                return self._send(404, {"success": False, "error_code": "task_not_found", "msg": "Tâche inconnue"})
             if fb.on_stop == "refuse" or task["id"] in fb.refuse_ids:
                 return self._send(403, {"success": False, "error_code": "insufficient_rights", "msg": "Accès refusé"})
             if fb.on_stop == "finish":

@@ -17,6 +17,7 @@ class MediaId:
     proper: bool = False  # REPACK / PROPER release
     source: str = "file"  # file | folder | file+folder | folders
     part: bool = False  # the name says "Part 2" / "Pt2": one part of a split episode or movie
+    edition: str | None = None  # "Extended", "Director's Cut" ...: maybe not the cut the library holds
 
     @property
     def display_title(self) -> str:
@@ -92,7 +93,9 @@ class Op:
     expect_tree: frozenset | None = None  # folder renames: exact file set expected at execution
     ref: str | None = None  # identical-/same-duplicate: the library file holding the same media as dst
     ref_mtime: float | None = None
-    ref_size: int | None = None  # same-duplicate: size of `ref` when planned (it must be unchanged)
+    # same-duplicate: every library file holding the media, (path, size, mtime) when planned; all must be
+    # unchanged right before the deletion
+    ref_files: tuple = ()
     # duplicate / duplicate-sidecar: the review cleaning may delete it after the retention (journaled);
     # False = kept in review until the user decides
     purge: bool = False

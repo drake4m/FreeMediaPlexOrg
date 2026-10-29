@@ -184,10 +184,11 @@ method = "quiescence"
 # delete_identical_duplicates = true   (default)
 
 # A download the library already has is deleted in the run that finds it, even when its bytes
-# differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not one part
-# of a split file, and not larger than the library copy. Other duplicates (a bigger or repaired
-# copy, a year that cannot be confirmed) go to review/duplicates and are kept until you decide;
-# certain duplicates that earlier runs moved there are deleted by the next run. false = duplicates
+# differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not a special
+# edition, not one part of a split file, and not larger than the library copy. Languages are not
+# compared. Other duplicates (a bigger or repaired copy, a year that cannot be confirmed) go to
+# review/duplicates and are kept until you decide; certain duplicates that earlier runs moved
+# there are deleted by the next run. Needs delete_identical_duplicates = true. false = duplicates
 # go to review/duplicates (duplicates_retention_days).
 # delete_duplicates = false   (default)
 

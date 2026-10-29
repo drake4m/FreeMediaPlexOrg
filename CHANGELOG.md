@@ -13,19 +13,24 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
 ### Added
 
 - `review.delete_duplicates = true`: a download the library already has is deleted in the run that finds it,
-  even when its bytes differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not
-  one part of a split file, and not larger than the library copy. An episode needs no year in its name (its
-  show folder is the one folder of that title); a year that is not the show folder's keeps it. Right before
-  the deletion the library copy must still be there, unchanged. The subtitles of such a download are not put
-  next to the library copy (they may not match it): they go to `review/leftovers` with the rest. Other
-  duplicates (a bigger or repaired copy, a year that cannot be confirmed) go to `review/duplicates` and are
-  kept until you decide; certain duplicates that earlier runs moved there are deleted by the next run.
-  `status` shows the rule in force; `undo` lists such deletions as not restorable.
+  even when its bytes differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not a
+  special edition (Extended, Director's Cut...), not one part of a split file, and not larger than the
+  library copy. An episode needs no year in its name (its show folder is the one folder of that title); a
+  release naming a year is kept unless the show folder has that year. Languages are not compared. Right
+  before the deletion every library file of that episode or film must still be there, unchanged. The
+  subtitles of such a download are not put next to the library copy (they may not match it): they go to
+  `review/leftovers` with the rest. Other duplicates (a bigger or repaired copy, a year that cannot be
+  confirmed) go to `review/duplicates` and are kept until you decide; certain duplicates that earlier runs
+  moved there are deleted by the next run. `status` shows the rule in force; `undo` lists such deletions as
+  not restorable. It cannot be combined with `review.delete_identical_duplicates = false`.
 - Freebox: a download whose task disappeared from the Freebox (removed in Freebox OS, its files kept) is
   filed when the task had received everything when a run last saw it, even with
-  `completeness.untracked = "wait"`, and never when it had not (its files are incomplete), even with
-  `untracked = "quiescence"`; files it never fully received (deselected ones) stay in Downloads. What the
-  Freebox last said is kept in `<state_dir>/freebox_seen.json`.
+  `completeness.untracked = "wait"`, and never when it had not, or was in error or being verified (its files
+  may be incomplete), even with `untracked = "quiescence"`, until the download is added again in Freebox OS
+  and its new task finishes. The same holds for one of several tasks writing into a folder. Files a task
+  never fully received (deselected ones) stay in Downloads. What the Freebox last said about the tasks of
+  each entry of Downloads is kept in `<state_dir>/freebox_seen.json`, and forgotten when the entry leaves
+  Downloads; a record older than the entry's files does not decide.
 
 ### Fixed
 
@@ -33,20 +38,30 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
   (`done`) or was paused just before no longer leaves the download waiting for the next run: the task is read
   again and the download filed in the same run; a task removed meanwhile is reported as gone, and its
   download filed by the next run.
+- `completeness.on_seeding = "stop"`: a task the Freebox says it cannot find while still listing it is
+  reported as not stopped (it keeps seeding), not as removed; when one task of a download reaches its ratio
+  during the stop, the download's other tasks are checked again before going on; a `done` task counts as
+  finished at any percentage, as it does for filing.
 - A download deleted from Downloads during a run (for example removed in Freebox OS with its files) is
-  skipped with a warning instead of failing the run (exit 1); no library folder is created for it.
-- `install.sh --rollback` checks that the previous version can read the configuration in force and refuses,
-  changing nothing, when it cannot (the message names the setting). It no longer advises restoring
-  `config.toml.bak`, which after a `config unset` holds the newer settings.
-- `check`: a folder still ending with `[mediaorg]` that holds no video is reported as such (tMM ignores it)
-  instead of as "not renamed after a day".
+  skipped with a warning instead of failing the run (exit 1); no library folder is created for it. When the
+  Downloads folder itself disappears (share unmounted), the run stops with exit 3 as for any storage failure.
+- A subtitle the Freebox did not fully receive (deselected, for example) is no longer filed next to its
+  video: it goes to `review/leftovers`.
+- `install.sh --rollback` checks that the previous version can read the configuration the units use and
+  `/etc/mediaorg/config.toml`, and refuses, changing nothing, when it cannot (the message names the file and
+  how to unset the setting). It no longer advises restoring `config.toml.bak`, which after a `config unset`
+  holds the newer settings.
+- `check`: a folder still ending with `[mediaorg]` that holds no video (of any video type) is reported as
+  such (tMM ignores it) instead of as "not renamed after a day"; a folder that cannot be read entirely is
+  not.
 - `contrib/fix-case-renames.sh`: skips folders that hold no video, and gives each folder it renames today's
   date, so that `check` counts the day from the repair.
 
 ### Changed
 
 - The run summary counts the duplicates deleted by `review.delete_duplicates` when there are any:
-  `deletes N (identical downloads X, duplicates Y, empty library files Z)`.
+  `deletes N (identical downloads X, other duplicates Y, empty library files Z)`; the JSON report's summary
+  has `dup_deleted`.
 
 ## [2.1.0] - 2026-10-29
 

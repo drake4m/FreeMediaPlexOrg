@@ -527,6 +527,9 @@ def from_dict(data: dict, source_file: str = "<dict>") -> Config:
         if "tmm_trash_retention_days" in (data.get("review") or {}):
             raise ConfigError("[review] sets both tmm_trash_retention_days and tmm_trash_retention_minutes: "
                               "keep one of them")
+    if review_cfg.delete_duplicates and not review_cfg.delete_identical_duplicates:
+        raise ConfigError("review.delete_duplicates = true deletes byte-identical copies too: it cannot be "
+                          "combined with review.delete_identical_duplicates = false")
     longest = max(review_cfg.duplicates_retention_days, review_cfg.leftovers_retention_days)
     if reports.journal_retention_days and longest >= 0 and reports.journal_retention_days <= longest:
         raise ConfigError(f"reports.journal_retention_days ({reports.journal_retention_days}) must be longer than "

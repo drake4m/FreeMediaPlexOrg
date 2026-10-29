@@ -336,16 +336,23 @@ def _verify_unlink(op: Op) -> str | None:
     problem = _same_file_state(op.dst, op.expect_size, op.expect_mtime)
     if problem:
         return f"{what} {problem} since the scan"
-    if op.role in ("identical-duplicate", "same-duplicate"):
+    if op.role == "identical-duplicate":
         if not op.ref:
             return "no library copy recorded for a deletion"
-        # the library copy must still be there, unchanged: a byte-identical one has the download's size
-        ref_size = op.expect_size if op.role == "identical-duplicate" else op.ref_size
-        if not ref_size:
-            return f"no size recorded for the library copy {op.ref}"
-        problem = _same_file_state(op.ref, ref_size, op.ref_mtime)
+        if not op.expect_size or op.ref_mtime is None:
+            return f"no size or time recorded for the library copy {op.ref}"
+        problem = _same_file_state(op.ref, op.expect_size, op.ref_mtime)  # same bytes, so the download's size
         if problem:
             return f"library copy {op.ref} {problem} since the scan"
+    elif op.role == "same-duplicate":
+        if not op.ref_files:
+            return "no library copy recorded for a deletion"
+        for path, size, mtime in op.ref_files:  # every library file holding the media, as planned
+            if not size or mtime is None:
+                return f"no size or time recorded for the library copy {path}"
+            problem = _same_file_state(path, size, mtime)
+            if problem:
+                return f"library copy {path} {problem} since the scan"
     elif op.role != "empty-placeholder" or op.expect_size != 0:
         return f"refusing an unplanned kind of deletion ({op.role})"
     return None
@@ -431,7 +438,11 @@ def execute(plans: list[ItemPlan], journal: Journal, unfinished: Unfinished | No
             continue
         if _gone(plan.item.path):
             # deleted since the scan (e.g. removed in Freebox OS together with its files): nothing to do, not
-            # an error; checked before any of its operations, so no library folder is created for it either
+            # an error; checked before any of its operations, so no library folder is created for it either.
+            # Unless the folder that held it is gone too: then the share is (no longer) mounted.
+            root = os.path.dirname(plan.item.path)
+            if _gone(root) or not os.path.isdir(root):
+                raise StorageUnavailable(f"{root} is gone (the share is no longer mounted?)")
             journal.write({"state": "item_aborted", "item": plan.item.name, "reason": "vanished since the scan"})
             res.vanished.append(plan.item.name)
             res.skipped_items.append(plan.item.name)

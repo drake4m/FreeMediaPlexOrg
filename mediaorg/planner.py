@@ -179,9 +179,10 @@ class Planner:
         ref = d.refs[0]
         st = self.lib.stat_of(ref)
         if d.same:
+            files = tuple((r, *self.lib.stat_of(r)) for r in d.refs if self.lib.stat_of(r))
             return Op("unlink", dst=d.file.path, role="same-duplicate", expect_size=d.file.size,
                       expect_mtime=d.file.mtime, ref=ref, ref_mtime=st[1] if st else None,
-                      ref_size=st[0] if st else None)
+                      ref_files=files if len(files) == len(d.refs) else ())
         return Op("unlink", dst=d.file.path, role="identical-duplicate", expect_size=d.file.size,
                   expect_mtime=d.file.mtime, ref=ref, ref_mtime=st[1] if st else None)
 
@@ -197,10 +198,14 @@ class Planner:
             return "it is a REPACK/PROPER release"
         if m.part:
             return "it is one part of a split file"
+        if m.edition:
+            return f"it is a special edition ({m.edition})"
         if m.kind == "episode" and self.cfg.review.delete_duplicates:
-            # the show folder was matched by its title (only one fits); a year, when both have one, must agree
-            if m.year is not None and folder_year is not None and m.year != folder_year:
-                return "the release year is not the show folder's"
+            # the show folder is the one folder of that title; a year in the release must be that folder's
+            # own (an undated folder may hold another show of the same title)
+            if m.year is not None and m.year != folder_year:
+                return (f"the release names {m.year}, the show folder "
+                        + ("no year" if folder_year is None else str(folder_year)))
         elif m.year is None or folder_year is None or m.year != folder_year:
             return f"no year in the release name to confirm it is the same {what}"
         sizes = [st[0] for st in (self.lib.stat_of(r) for r in refs) if st]
@@ -210,18 +215,20 @@ class Planner:
             return "it is larger than the library copy (a repaired or better copy?)"
         return ""
 
-    def _largest(self, refs: list[str]) -> str | None:
-        """The biggest library file of `refs` that can be read (the copy a duplicate is compared with)."""
-        sized = [(st[0], r) for r, st in ((r, self.lib.stat_of(r)) for r in refs) if st and st[0] > 0]
-        return max(sized)[1] if sized else None
+    def _by_size(self, refs: list[str]) -> list[str] | None:
+        """All library files of `refs`, biggest first, or None when one of them cannot be read or is empty."""
+        stats = [(r, self.lib.stat_of(r)) for r in refs]
+        if not stats or any(not st or st[0] <= 0 for _, st in stats):
+            return None
+        return [r for r, _ in sorted(stats, key=lambda x: (-x[1][0], x[0]))]
 
     def _duplicate(self, f: FileEntry, m: MediaId, reason: str, note: str, refs: list[str],
                    folder_year: int | None) -> FileDecision:
         keep = self._certain(f, m, folder_year, refs)
         if not keep and self.cfg.review.delete_duplicates:
-            ref = self._largest(refs)
-            if ref:
-                return FileDecision(f, "delete", f"{reason}; {SAME}", m, notes=[note], refs=[ref], same=True)
+            ordered = self._by_size(refs)
+            if ordered:
+                return FileDecision(f, "delete", f"{reason}; {SAME}", m, notes=[note], refs=ordered, same=True)
         days = self.cfg.review.duplicates_retention
         if keep or days < 0:
             extra = f"kept in review until you decide: {keep}" if keep else "kept in review (retention -1)"
@@ -391,10 +398,13 @@ class Planner:
         sub = os.path.dirname(f.rel)
         return os.path.join(self.review_dup, item.name, *([sub] if sub else []), name)
 
-    def _plan_sidecars(self, item: Item, renames: list[Op], mains, subs, decisions, moved: set[str]) -> None:
+    def _plan_sidecars(self, item: Item, renames: list[Op], mains, subs, decisions, moved: set[str],
+                       blocked: frozenset = frozenset()) -> None:
         """Subtitles follow their video: next to the moved file, next to the library copy when the
-        download was deleted as identical to it, or along with a duplicate into review/duplicates."""
+        download was deleted as identical to it, or along with a duplicate into review/duplicates.
+        A subtitle the download client did not fully receive (`blocked`) stays with the leftovers."""
         by_file = {d.file.path: d for d in decisions}
+        blocked = frozenset(unicodedata.normalize("NFC", p) for p in blocked)
         for sub in sorted(subs, key=lambda s: s.rel):
             owner = None
             if len(mains) == 1:
@@ -407,6 +417,9 @@ class Planner:
                         owner = by_file[v.path]
                         break
             if owner is None:
+                continue
+            if unicodedata.normalize("NFC", sub.path) in blocked:
+                owner.notes.append(f"subtitle {sub.rel!r} not filed (not fully downloaded): left with the leftovers")
                 continue
             if owner.action == "duplicate":
                 dst = self._dup_target(item, sub)
@@ -620,7 +633,7 @@ class Planner:
             op.purge = d.purge
             renames.append(op)
             moved.add(d.file.path)
-        self._plan_sidecars(item, renames, mains, subs, decisions, moved)
+        self._plan_sidecars(item, renames, mains, subs, decisions, moved, readiness.blocked_files)
         # deletions last: if any move of this item fails, the item stops before anything is deleted
         for d in dels:
             renames.append(self._delete_op(d))
