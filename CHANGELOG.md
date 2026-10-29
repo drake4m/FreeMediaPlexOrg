@@ -5,6 +5,49 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-29
+
+One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, duplicates are handled as in
+2.1.0. Includes 2.1.0, which was not published as a release of its own.
+
+### Added
+
+- `review.delete_duplicates = true`: a download the library already has is deleted in the run that finds it,
+  even when its bytes differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not
+  one part of a split file, and not larger than the library copy. An episode needs no year in its name (its
+  show folder is the one folder of that title); a year that is not the show folder's keeps it. Right before
+  the deletion the library copy must still be there, unchanged. The subtitles of such a download are not put
+  next to the library copy (they may not match it): they go to `review/leftovers` with the rest. Other
+  duplicates (a bigger or repaired copy, a year that cannot be confirmed) go to `review/duplicates` and are
+  kept until you decide; certain duplicates that earlier runs moved there are deleted by the next run.
+  `status` shows the rule in force; `undo` lists such deletions as not restorable.
+- Freebox: a download whose task disappeared from the Freebox (removed in Freebox OS, its files kept) is
+  filed when the task had received everything when a run last saw it, even with
+  `completeness.untracked = "wait"`, and never when it had not (its files are incomplete), even with
+  `untracked = "quiescence"`; files it never fully received (deselected ones) stay in Downloads. What the
+  Freebox last said is kept in `<state_dir>/freebox_seen.json`.
+
+### Fixed
+
+- `completeness.on_seeding = "stop"`: a stop request refused because the task reached its stop ratio
+  (`done`) or was paused just before no longer leaves the download waiting for the next run: the task is read
+  again and the download filed in the same run; a task removed meanwhile is reported as gone, and its
+  download filed by the next run.
+- A download deleted from Downloads during a run (for example removed in Freebox OS with its files) is
+  skipped with a warning instead of failing the run (exit 1); no library folder is created for it.
+- `install.sh --rollback` checks that the previous version can read the configuration in force and refuses,
+  changing nothing, when it cannot (the message names the setting). It no longer advises restoring
+  `config.toml.bak`, which after a `config unset` holds the newer settings.
+- `check`: a folder still ending with `[mediaorg]` that holds no video is reported as such (tMM ignores it)
+  instead of as "not renamed after a day".
+- `contrib/fix-case-renames.sh`: skips folders that hold no video, and gives each folder it renames today's
+  date, so that `check` counts the day from the repair.
+
+### Changed
+
+- The run summary counts the duplicates deleted by `review.delete_duplicates` when there are any:
+  `deletes N (identical downloads X, duplicates Y, empty library files Z)`.
+
 ## [2.1.0] - 2026-10-29
 
 Two opt-in settings; with neither set, 2.1.0 files exactly as 2.0.0.

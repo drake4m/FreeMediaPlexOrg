@@ -138,7 +138,8 @@ def _retention_notes(cfg: Config, plans) -> list[str]:
     """With a retention of 0, what this run moves to review is cleaned at its end: say so up front."""
     roles = {op.role for p in plans if p.status in ("ready", "partial") for op in p.ops}
     notes = []
-    if cfg.review.duplicates_retention_days == 0 and roles & {"duplicate", "duplicate-sidecar"}:
+    if cfg.review.duplicates_retention_days == 0 and not cfg.review.delete_duplicates and roles & {
+            "duplicate", "duplicate-sidecar"}:
         notes.append("review.duplicates_retention_days = 0: the duplicates this run moves to review are deleted "
                      "at the end of the run")
     if cfg.review.leftovers_retention_days == 0 and "leftovers" in roles:
@@ -445,6 +446,8 @@ def _apply(cfg: Config, args, todo, run_id: str, unfinished, info) -> tuple[int,
     journal.close()
     for e in res.errors:
         log.error("%s", e)
+    for name in res.vanished:
+        log.warning("%s: gone from Downloads since the scan (deleted?): nothing done", name)
     log.info("run %s: %d operation(s) done, %d failed", run_id, res.done, res.failed)
     return (EXIT_OP_FAILED if res.failed else EXIT_OK), res.moved_paths
 
@@ -912,24 +915,41 @@ def cmd_check(cfg: Config, args) -> int:
 STAGING_GRACE_SECONDS = 86400  # a staged folder older than this: tMM has evidently not renamed it
 
 
-def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> list[str]:
-    """Library folders that still carry the staging tag, unchanged for `older_than` seconds (relative paths)."""
+def _has_video(folder: str, exts, depth: int = 3) -> bool:
+    """Does `folder` hold a file with a video extension, at most `depth` levels down?"""
+    base = folder.rstrip(os.sep).count(os.sep)
+    for d, dirs, files in os.walk(folder):
+        if any(os.path.splitext(n)[1].lower() in exts for n in files):
+            return True
+        if d.rstrip(os.sep).count(os.sep) - base >= depth - 1:
+            dirs[:] = []
+    return False
+
+
+def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> tuple[list[str], list[str]]:
+    """Library folders that still carry the staging tag (paths relative to the media folder): (those with a
+    video, unchanged for `older_than` seconds: tMM has not renamed them; those without any video file, which
+    tMM ignores)."""
     from .normalize import is_staged
 
-    now, out = time.time(), []
+    now, stale, empty = time.time(), [], []
     for root in (cfg.paths.movies, cfg.paths.series):
         try:
             with os.scandir(root) as it:
                 for e in it:
                     try:
-                        if (e.is_dir(follow_symlinks=False) and is_staged(e.name)
-                                and now - e.stat(follow_symlinks=False).st_mtime >= older_than):
-                            out.append(os.path.relpath(e.path, cfg.base_dir))
+                        if not (e.is_dir(follow_symlinks=False) and is_staged(e.name)):
+                            continue
+                        rel = os.path.relpath(e.path, cfg.base_dir)
+                        if not _has_video(e.path, cfg.media.video_extensions):
+                            empty.append(rel)
+                        elif now - e.stat(follow_symlinks=False).st_mtime >= older_than:
+                            stale.append(rel)
                     except OSError:
                         continue
         except OSError:
             continue
-    return sorted(out)
+    return sorted(stale), sorted(empty)
 
 
 def _check_seeding_and_staging(cfg: Config, line) -> None:
@@ -954,11 +974,18 @@ def _check_seeding_and_staging(cfg: Config, line) -> None:
             line("warn", f"the library is on an SMB share ({entry.fstype}): tMM on Linux cannot rename a folder whose "
                          f"new name differs only in letter case; to avoid it: sudo mediaorg config set "
                          f"naming.tmm_staging=true")
-    stale = _staged_folders(cfg)
+    stale, empty = _staged_folders(cfg)
+
+    def shown(paths: list[str]) -> str:
+        return ", ".join(repr(s) for s in paths[:3]) + (f" (+{len(paths) - 3} more)" if len(paths) > 3 else "")
+
     if stale:
-        shown = ", ".join(repr(s) for s in stale[:3]) + (f" (+{len(stale) - 3} more)" if len(stale) > 3 else "")
         line("warn", f"{len(stale)} folder(s) still end with ' {STAGING_TAG}' after a day: tMM has not renamed them "
-                     f"(scrape and rename them in tMM; is folder renaming on in tMM's renamer settings?): {shown}")
+                     f"(scrape and rename them in tMM; is folder renaming on in tMM's renamer settings?): "
+                     f"{shown(stale)}")
+    if empty:
+        line("warn", f"{len(empty)} folder(s) ending with ' {STAGING_TAG}' hold no video file, so tMM ignores them "
+                     f"(put the video back, or delete the folder): {shown(empty)}")
 
 
 def cmd_library(cfg: Config, args) -> int:
@@ -1173,6 +1200,15 @@ def cmd_status(args) -> int:
         print("  tinyMediaManager: " + (f"enabled ({cfg.tmm.base_url})" if cfg.tmm.enabled else "disabled")
               + ("; new folders end with ' [mediaorg]' until tMM renames them"
                  if cfg.tmm.enabled and cfg.naming.tmm_staging else ""))
+        r = cfg.review
+        if r.delete_duplicates:
+            dup = "deleted when the library already has them; a bigger or repaired copy is kept in review"
+        else:
+            days = r.duplicates_retention_days
+            dup = (("byte-identical copies deleted; " if r.delete_identical_duplicates else "")
+                   + "others moved to review" + ("" if days < 0 else ", the certain ones deleted "
+                                                 + ("at the end of the run" if days == 0 else f"after {days} day(s)")))
+        print(f"  duplicates: {dup}")
     print("systemd:")
     for line in status_lines():
         print(f"  {line}")

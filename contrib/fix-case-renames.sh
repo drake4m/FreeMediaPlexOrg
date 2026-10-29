@@ -6,8 +6,9 @@
 # its rename fails (NoSuchFileException, "Renaming aborted") and the movie keeps its names. New folders are
 # protected by naming.tmm_staging (docs/TMM.md); this script repairs the folders that are already stuck.
 #
-# A folder is a candidate when its tMM .nfo (movie .nfo, or tvshow.nfo) names a title and year whose
-# "Title (Year)" equals the folder name ignoring case but not exactly. Each candidate is renamed to
+# A folder is a candidate when it holds a video and its tMM .nfo (movie .nfo, or tvshow.nfo) names a title
+# and year whose "Title (Year)" equals the folder name ignoring case but not exactly (tMM ignores a folder
+# without video, so renaming one would change nothing). Each candidate is renamed to
 # "<name> [mediaorg]" (a name that differs by more than the case), then tMM is asked to update, scrape and
 # rename what is new (`mediaorg tmm sync --apply`): tMM then gives the folder and its files their names.
 # Folders without such an .nfo, or whose name differs otherwise, are left alone. Nothing is deleted or
@@ -57,6 +58,18 @@ import unicodedata
 import xml.etree.ElementTree as ET
 
 TAG = re.compile(r"\s*\[mediaorg\]\s*$", re.I)
+VIDEO = frozenset(".mkv .mp4 .m4v .avi .mov .wmv .ts .m2ts .mts .webm .flv .mpg .mpeg .vob .ogm .divx .iso "
+                  ".rmvb .asf .3gp".split())
+
+
+def has_video(folder, depth=3):
+    base = folder.rstrip("/").count("/")
+    for d, dirs, files in os.walk(folder):
+        if any(os.path.splitext(n)[1].lower() in VIDEO for n in files):
+            return True
+        if d.rstrip("/").count("/") - base >= depth - 1:
+            dirs[:] = []
+    return False
 
 
 def nfc(s):
@@ -97,7 +110,7 @@ for lib, show in ((sys.argv[1], False), (sys.argv[2], True)):
         want = re.sub(r"\s*:\s*", " - ", f"{ty[0]} ({ty[1]})")
         want = re.sub(r'[\\/*?"<>|]', "", want)
         want = re.sub(r"\s+", " ", want).strip()
-        if nfc(want) != nfc(name) and nfc(want).casefold() == nfc(name).casefold():
+        if nfc(want) != nfc(name) and nfc(want).casefold() == nfc(name).casefold() and has_video(folder):
             print(f"{lib}\t{name}\t{want}")
 PY
 }
@@ -139,6 +152,8 @@ for c in "${CANDS[@]}"; do
     echo "  [skip] $dst exists"; FAILS=$((FAILS + 1)); continue
   fi
   if runuser -u mediaorg -- mv -n -T -- "$src" "$dst" && [ -d "$dst" ] && [ ! -e "$src" ]; then
+    # a rename keeps the folder's date: give it today's, so that `mediaorg check` counts its day from now
+    runuser -u mediaorg -- touch -c -- "$dst" || true
     echo "  [ok]   $(basename "$lib")/$name -> $name [mediaorg]"
     printf 'mv -n -T -- %q %q\n' "$dst" "$src" >> "$LOG"
     DONE=$((DONE + 1))

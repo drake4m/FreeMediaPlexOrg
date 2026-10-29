@@ -33,7 +33,7 @@ share): the systemd sandbox makes that one folder writable, and a move must stay
 
 ```bash
 sudo apt install python3 python3-venv curl
-VER=2.1.0
+VER=2.2.0
 cd /tmp
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
@@ -48,7 +48,7 @@ sudo mediaorg run --apply
 sudo mediaorg service install --enable
 ```
 
-Expected: `== INSTALL OK: mediaorg 2.1.0`, then `configuration written to /etc/mediaorg/config.toml`, then
+Expected: `== INSTALL OK: mediaorg 2.2.0`, then `configuration written to /etc/mediaorg/config.toml`, then
 `[ok]` lines from `check` (warnings are advice), then a report of what would be filed.
 
 ## Full guide
@@ -118,7 +118,7 @@ nas.local:/export/media  /mnt/nas  nfs4  defaults,_netdev,nofail  0 0
 
 ```bash
 sudo apt install python3 python3-venv curl
-VER=2.1.0
+VER=2.2.0
 cd /tmp
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256

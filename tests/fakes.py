@@ -57,7 +57,8 @@ class FakeFreebox(_Server):
         self.stop_ratio = stop_ratio
         # PUT downloads/{id} {"status": "stopped"}: the task becomes "stopped" ("stopped"), stays "stopping"
         # ("stopping"), the call fails with an API error ("refuse", or only for the ids in refuse_ids), or the
-        # answer is cut short ("truncate")
+        # answer is cut short ("truncate"); races: the task reached its stop ratio just before the call, which
+        # is refused ("finish": it is now "done"), or it was removed in Freebox OS ("vanish": task_not_found)
         self.on_stop = on_stop
         self.refuse_ids: set[int] = set()
         self.tasks = list(tasks)
@@ -128,6 +129,12 @@ class FreeboxHandler(_Handler):
                 return self._send(400, {"success": False, "error_code": "invalid_request"})
             if fb.on_stop == "refuse" or task["id"] in fb.refuse_ids:
                 return self._send(403, {"success": False, "error_code": "insufficient_rights", "msg": "Accès refusé"})
+            if fb.on_stop == "finish":
+                task["status"] = "done"
+                return self._send(400, {"success": False, "error_code": "invalid_request", "msg": "État invalide"})
+            if fb.on_stop == "vanish":
+                fb.tasks.remove(task)
+                return self._send(404, {"success": False, "error_code": "task_not_found", "msg": "Tâche inconnue"})
             if fb.on_stop == "truncate":
                 task["status"] = "stopped"
                 self.send_response(200)

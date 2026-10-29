@@ -85,6 +85,7 @@ def counts(plans: list[ItemPlan]) -> dict:
         "sidecars": ops[("rename", "sidecar")] + ops[("rename", "duplicate-sidecar")],
         "duplicates": ops[("rename", "duplicate")], "leftovers": ops[("rename", "leftovers")],
         "deleted": ops[("unlink", "identical-duplicate")], "emptied": ops[("unlink", "empty-placeholder")],
+        "dup_deleted": ops[("unlink", "same-duplicate")],
         "mkdir": len({op.dst for op in active if op.kind == "mkdir"}),  # same folder may be listed per item
         "rmdir": sum(v for (k, _), v in ops.items() if k == "rmdir"),
     }
@@ -95,8 +96,10 @@ def summary_line(plans: list[ItemPlan], apply: bool, purges: int = 0, trash: int
     items = ", ".join(f"{k} {v}" for k, v in sorted(c["items"].items())) or "none"
     mode = "APPLY" if apply else "DRY-RUN (nothing changed; add --apply to act)"
     return (f"{mode}: items: {items} | renames {c['renames']} (media {c['media']}, subtitles {c['sidecars']}, "
-            f"duplicates {c['duplicates']}, leftovers {c['leftovers']}), deletes {c['deleted'] + c['emptied']} "
-            f"(identical downloads {c['deleted']}, empty library files {c['emptied']}), mkdir {c['mkdir']}, "
+            f"duplicates {c['duplicates']}, leftovers {c['leftovers']}), "
+            f"deletes {c['deleted'] + c['dup_deleted'] + c['emptied']} (identical downloads {c['deleted']}, "
+            + (f"duplicates {c['dup_deleted']}, " if c["dup_deleted"] else "")
+            + f"empty library files {c['emptied']}), mkdir {c['mkdir']}, "
             f"rmdir {c['rmdir']}" + (f" | review folders to purge {purges}" if purges else "")
             + (f" | tMM trash folders to clean {trash}" if trash else ""))
 

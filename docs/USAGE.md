@@ -110,8 +110,17 @@ hides a change from the next timer run.
   videos, subtitles that could not follow their video, videos of other types.
 
 A download that is **byte-for-byte identical** to the library file is not kept: it is deleted (`delete` in
-the report; `review.delete_identical_duplicates = false` sends it to review instead). Example, a second
-copy and a REPACK of an episode that is already filed:
+the report; `review.delete_identical_duplicates = false` sends it to review instead).
+
+To keep no duplicates at all, `sudo mediaorg config set review.delete_duplicates=true`: a download of an
+episode or movie the library already has is then deleted in the run that finds it, even when its bytes
+differ, as long as it is the same episode (or the same film of the same year), not a REPACK/PROPER, not one
+part of a split file, and not larger than the library copy (`delete ... not larger than the library copy:
+deleted from Downloads (review.delete_duplicates)`). A bigger or repaired copy may be the better one: it goes
+to review and is kept until you decide. Its subtitles are not put next to the library copy (they may not
+match it). Certain duplicates that earlier runs moved to review are deleted by the next run.
+
+Example, a second copy and a REPACK of an episode that is already filed:
 
 ```text
 [READY] Some.Show.S02E05.1080p.WEB.h264-GRP.mkv

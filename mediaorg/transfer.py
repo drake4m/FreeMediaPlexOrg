@@ -113,6 +113,17 @@ def _exists(path: str) -> bool | None:
         return None
 
 
+def _gone(path: str) -> bool:
+    """True only when `path` certainly does not exist (a storage that does not answer is not "gone")."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _release_placeholder(src: str, dst: str) -> bool:
     """Remove dst only if it is our empty placeholder and the move clearly did not happen."""
     if _exists(src) is not True:
@@ -284,6 +295,7 @@ class ExecResult:
     skipped_items: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     moved_paths: dict[str, set[str]] = field(default_factory=dict)
+    vanished: list[str] = field(default_factory=list)  # items deleted from Downloads since the scan: nothing done
 
 
 def _verify_source(op: Op) -> str | None:
@@ -324,10 +336,14 @@ def _verify_unlink(op: Op) -> str | None:
     problem = _same_file_state(op.dst, op.expect_size, op.expect_mtime)
     if problem:
         return f"{what} {problem} since the scan"
-    if op.role == "identical-duplicate":
+    if op.role in ("identical-duplicate", "same-duplicate"):
         if not op.ref:
             return "no library copy recorded for a deletion"
-        problem = _same_file_state(op.ref, op.expect_size, op.ref_mtime)
+        # the library copy must still be there, unchanged: a byte-identical one has the download's size
+        ref_size = op.expect_size if op.role == "identical-duplicate" else op.ref_size
+        if not ref_size:
+            return f"no size recorded for the library copy {op.ref}"
+        problem = _same_file_state(op.ref, ref_size, op.ref_mtime)
         if problem:
             return f"library copy {op.ref} {problem} since the scan"
     elif op.role != "empty-placeholder" or op.expect_size != 0:
@@ -412,6 +428,13 @@ def execute(plans: list[ItemPlan], journal: Journal, unfinished: Unfinished | No
     created: set[str] = set()  # directories created by this run
     for plan in plans:
         if not plan.ops:
+            continue
+        if _gone(plan.item.path):
+            # deleted since the scan (e.g. removed in Freebox OS together with its files): nothing to do, not
+            # an error; checked before any of its operations, so no library folder is created for it either
+            journal.write({"state": "item_aborted", "item": plan.item.name, "reason": "vanished since the scan"})
+            res.vanished.append(plan.item.name)
+            res.skipped_items.append(plan.item.name)
             continue
         problem = _verify_item(plan)
         if problem:
@@ -582,7 +605,8 @@ def reconcile(journal_dir: str, dry_run: bool = False) -> tuple[int, list[str]]:
 
 def undo_plan(journal_path: str) -> tuple[list[Op], list[str]]:
     """Inverse operations for everything a run actually did, newest first, and notes about what
-    cannot be reversed (deleted byte-identical downloads: the library copy is their content)."""
+    cannot be reversed (deleted duplicates: a byte-identical one's content is the library copy; one
+    deleted by review.delete_duplicates is gone, the library copy holds the same media)."""
     _, ops, _ = read_journal(journal_path)
     inverse, notes = [], []
     for seq in sorted(ops, reverse=True):
@@ -597,6 +621,9 @@ def undo_plan(journal_path: str) -> tuple[list[Op], list[str]]:
             inverse.append(Op("mkdir", dst=rec["dst"], role="undo"))
         elif rec["op"] == "unlink" and rec.get("role") == "empty-placeholder":
             inverse.append(Op("create", dst=rec["dst"], role="undo", expect_size=0, expect_mtime=rec.get("mtime")))
+        elif rec["op"] == "unlink" and rec.get("role") == "same-duplicate":
+            notes.append(f"not restored: {rec['dst']} was deleted as a duplicate of {rec.get('ref')} "
+                         "(review.delete_duplicates)")
         elif rec["op"] == "unlink":
             notes.append(f"not restored: {rec['dst']} was deleted as a byte-identical copy of {rec.get('ref')}")
     return inverse, notes

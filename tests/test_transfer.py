@@ -29,8 +29,9 @@ class TransferBase(unittest.TestCase):
         return p
 
     def plan(self, *ops, name="item"):
-        return ItemPlan(item=Item(name=name, path=os.path.join(self.tmp, name), is_dir=True), status="ready",
-                        ops=list(ops))
+        path = os.path.join(self.tmp, name)
+        os.makedirs(path, exist_ok=True)  # the Downloads entry exists when its plan is executed
+        return ItemPlan(item=Item(name=name, path=path, is_dir=True), status="ready", ops=list(ops))
 
 
 class TestRenameNoReplace(TransferBase):

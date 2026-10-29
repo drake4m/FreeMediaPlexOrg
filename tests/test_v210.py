@@ -440,8 +440,8 @@ class TestStagingCheck(unittest.TestCase):
     def test_folders_tmm_left_staged_are_reported(self):
         old = f"{self.nas.movies}/Rookfield (2026) {STAGING_TAG}"
         new = f"{self.nas.series}/Vellum Gate {STAGING_TAG}"
-        os.makedirs(old)
-        os.makedirs(new)
+        touch(f"{old}/Rookfield.2026.1080p.mkv")
+        touch(f"{new}/Season 1/Vellum.Gate.S01E01.mkv")
         os.utime(old, (OLD - 86400, OLD - 86400))  # unchanged for more than a day
         _, out = self.check(tmm=self.tmm, naming={"tmm_staging": True})
         self.assertIn(f"[warn] 1 folder(s) still end with ' {STAGING_TAG}' after a day", out)

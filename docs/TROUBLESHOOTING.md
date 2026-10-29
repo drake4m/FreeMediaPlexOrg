@@ -60,6 +60,8 @@ reason for every entry of Downloads. Exit codes: [USAGE.md](USAGE.md#exit-codes)
 | exit 6, `plan has N moves/deletions, above the safety cap` | many downloads at once, after a long pause | look at the dry-run, then `sudo mediaorg run --apply --max-moves N` once |
 | exit 5 | the journal of an interrupted run contradicts the disk | look at the two paths named, fix by hand, then `sudo mediaorg recover` |
 | exit 4 | another run holds the lock | nothing; wait for it |
+| `WAIT ... its Freebox task N is gone; it was last seen '...' at X %, so the files are incomplete` | the task was removed in Freebox OS before it finished | add the download again in Freebox OS (it checks the files and finishes), or delete the files |
+| `WARNING ...: gone from Downloads since the scan (deleted?): nothing done` | the download was deleted while the run was planning | nothing |
 
 `mediaorg identify "<name>" --folder "<folder>"` shows how a name is read; [How it works](HOW-IT-WORKS.md)
 has the rules.
@@ -68,7 +70,7 @@ has the rules.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| a download disappeared from Downloads but nothing new is in the library | it was byte-identical to a library file and deleted (`delete` in its run's report) | nothing to fix: the library has the same bytes. `sudo grep -rl identical-duplicate /var/lib/mediaorg/journal` lists the runs that did it; `review.delete_identical_duplicates = false` keeps such copies in review instead |
+| a download disappeared from Downloads but nothing new is in the library | it was byte-identical to a library file and deleted, or, with `review.delete_duplicates`, a copy of an episode or movie the library has (`delete` in its run's report) | nothing to fix: the library has that episode or movie. `sudo grep -rlE 'identical-duplicate\|same-duplicate' /var/lib/mediaorg/journal` lists the runs that did it; `review.delete_duplicates = false` (and `delete_identical_duplicates = false`) keep such copies in review instead |
 | a review folder is gone | cleaned after its retention | `review.*_retention_days` (-1 = never); to keep files, move them out of the `<run-id>` folder |
 | a review folder stays, listed as `[KEPT]` | it holds files that are never deleted automatically (videos, uncertain duplicates, archives, documents, photos) | look at them, keep what you want, delete the folder |
 | a duplicate stays in review after the retention | it was not certain; its line in the run's report says why (no year, REPACK/PROPER, part of a split file, bigger than the library copy) | compare it with the library copy, keep the better one |
@@ -100,6 +102,8 @@ has the rules.
 | `app is authorised but lacks the 'downloader' permission`, or `login failed: ...` (such as `invalid_token`) | the permission was removed, or the app revoked in Freebox OS | give the permission back, or delete the token file and authorize again |
 | `cannot reach Freebox API at ...` | the machine is not on the Freebox's network, or cannot resolve `mafreebox.freebox.fr` | check the network and DNS; `freebox.base_url` |
 | files copied by hand stay `WAIT ... is not a Freebox download task` | `completeness.untracked = "wait"` (default) | file them by hand, or `config set completeness.untracked=quiescence` |
+| a download filed earlier comes back to Downloads | its task was resumed in Freebox OS | remove the task in Freebox OS instead of resuming it; the copy is a duplicate ([FREEBOX.md](FREEBOX.md#when-the-freebox-or-you-act-on-a-task)) |
+| `install.sh --rollback`: `mediaorg X cannot read ...: ...` | the configuration uses a setting the previous version does not know | `sudo mediaorg config unset <the setting named>`, then the rollback again ([UPGRADING.md](UPGRADING.md)) |
 | `[warn] Freebox app permissions: also [...]` | the app has more permissions than it needs | untick them in Freebox OS (Gestion des accès > Applications) |
 
 ## tinyMediaManager
@@ -112,6 +116,7 @@ has the rules.
 | `tmm.base_url ... http://` refused | plain HTTP to another machine would send the key unencrypted | use `https://`, or `tmm.allow_insecure_http = true` on a network you trust |
 | a new item is not scraped or renamed | no result good enough for tMM, tMM still in its first media-information pass, or a later call made tMM forget it | scrape it once in tMM; [TMM.md](TMM.md#known-limitations) |
 | a movie is scraped but keeps its folder and file names; tMM's log: `Rename problem ... [NoSuchFileException]`, `Renaming aborted` | on an SMB/CIFS share tMM (Linux) cannot rename a folder whose new name differs only in letter case | `sudo mediaorg config set naming.tmm_staging=true` for new folders; repair the stuck ones once with `sudo bash /opt/mediaorg/app/contrib/fix-case-renames.sh` ([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)) |
+| `[warn] N folder(s) ending with ' [mediaorg]' hold no video file, so tMM ignores them` | the video was deleted or moved away; only artwork and `.nfo` files are left | put the video back, or delete the folder |
 | `[warn] N folder(s) still end with ' [mediaorg]' after a day` | tMM did not rename them: not scraped yet, folder renaming off in tMM's renamer settings, or tMM not reached | scrape and rename them in tMM; turn tMM's folder renaming on, or `naming.tmm_staging=false` and rename the folders by hand |
 | tMM busy for hours right after its setup | its first media-information pass over the whole library | wait; do not restart tMM meanwhile |
 | tMM's log: `UnknownHostException: api.themoviedb.org` (Docker helper) | the container has no working DNS | `TMM_DNS_OPTS` ([TMM.md](TMM.md#optional-tinymediamanager-in-docker)) |

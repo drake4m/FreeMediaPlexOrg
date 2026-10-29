@@ -160,7 +160,8 @@ What is cleaned up automatically, and when.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `delete_identical_duplicates` | bool | `true` | A download whose bytes are identical to the library copy is deleted: nothing is lost. false = move it to review instead. |
-| `duplicates_retention_days` | int | `7` | Days after which the certain duplicates of a run are deleted from review/duplicates/ (0 = at the end of the run, -1 = never). Other duplicates are kept. |
+| `delete_duplicates` | bool | `false` | A download the library already has is deleted in the run that finds it, even when its bytes differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not one part of a split file, and not larger than the library copy. Other duplicates (a bigger or repaired copy, a year that cannot be confirmed) go to review/duplicates and are kept until you decide; certain duplicates that earlier runs moved there are deleted by the next run. false = duplicates go to review/duplicates (duplicates_retention_days). |
+| `duplicates_retention_days` | int | `7` | Days after which the certain duplicates of a run are deleted from review/duplicates/ (0 = at the end of the run, -1 = never). Other duplicates are kept. Not used with delete_duplicates = true. |
 | `leftovers_retention_days` | int | `7` | Days after which release clutter (.nfo, .txt, small images and subtitles, small samples) is deleted from review/leftovers/ (0 = at the end of the run, -1 = never). Other files are kept. |
 | `tmm_trash_retention_days` | int | `7` | Days a file stays in tMM's trash (.deletedByTMM in the library) before it is deleted (0 = in the first run, -1 = never). |
 | `tmm_trash_retention_minutes` | int | not set | The same in minutes; set this or tmm_trash_retention_days, not both. Example: `30` |

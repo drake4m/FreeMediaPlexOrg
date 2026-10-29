@@ -140,7 +140,10 @@ that holds its files. An entry is finished when **all** tasks writing into it ar
 A `seeding` task can instead be stopped when its download is filed ([below](#stop-seeding-when-a-download-is-filed)).
 Files you deselected in a torrent, or that are not fully received, are never moved.
 
-Entries that no Freebox task wrote (files you copied there yourself) follow `completeness.untracked`:
+An entry whose task disappeared from the Freebox (you removed it in Freebox OS and kept the files) is
+judged by what the Freebox last said about it: it is filed if the task had received everything, and never
+if it had not (its files are incomplete). Entries that no Freebox task ever wrote (files you copied there
+yourself, or a task added and removed between two runs) follow `completeness.untracked`:
 `"wait"` (default) never moves them; `"quiescence"` moves them once they have not changed for
 `completeness.min_quiet_minutes`:
 
@@ -174,8 +177,21 @@ The report says `Freebox task N was seeding: stopped`.
   torrent without a top folder, stop seeding with it.
 - If the Freebox refuses, does not answer, or does not confirm the stop, the download is `WAIT` and nothing of
   it moves; the next run looks again.
-- A stopped task stays in the Freebox's list; resuming it in Freebox OS after its files were filed would
-  download them again.
+- A stopped task stays in the Freebox's list. Remove it there when you like; do not resume it: its files
+  are no longer in Downloads, so the Freebox would download them again.
+
+## When the Freebox, or you, act on a task
+
+| What happens | What mediaorg does |
+|---|---|
+| the Freebox reaches its stop ratio before a run stops the task (`done`) | files the download; nothing to stop |
+| it reaches it while a run is stopping the task (the stop is refused) | reads the task again, files the download in the same run |
+| you pause the task at 100 % | files the download |
+| you pause it before the end | waits (`Freebox task status 'stopped'` below 100 %) |
+| you remove the task, keeping the files, after it finished | files the download (the next run) |
+| you remove it before it finished | never files those files: `its Freebox task N is gone; it was last seen 'downloading' at X %, so the files are incomplete`; add the download again in Freebox OS (it checks what is there and finishes), or delete them |
+| you remove the task and its files | nothing; a run that was about to file it skips it: `gone from Downloads since the scan` |
+| you resume a task after its download was filed | the Freebox downloads it again; once finished it is a duplicate of the library copy: deleted with `review.delete_duplicates` (the seeding is stopped first), otherwise moved to review |
 
 ## Freebox restart, internet outage
 

@@ -30,7 +30,8 @@ SMB share where tMM alone cannot change only the letter case of a folder name.
   first, so a file that appears meanwhile is never replaced (proven on your storage by `probe-rename`).
 - **Never guesses.** Anything ambiguous (two possible shows, a year that does not match, parts of a file,
   a name with no year and no release markers) stays in Downloads and is reported.
-- **Deletes almost nothing, and says so first:** only byte-identical duplicates of a library file, empty
+- **Deletes almost nothing, and says so first:** only byte-identical duplicates of a library file (and, if
+  you ask for it, downloads the library already has, never a bigger or repaired copy), empty
   0-byte placeholders it replaces, empty folders, and, after a retention you choose, release clutter and
   certain duplicates in its own review folder and the files tinyMediaManager put in its `.deletedByTMM`
   trash (7 days by default, also when the tMM calls are off; `-1` keeps them). Everything else is kept
@@ -54,7 +55,7 @@ SMB share where tMM alone cannot change only the letter case of a folder name.
 
 ```bash
 sudo apt install python3 python3-venv curl
-VER=2.1.0
+VER=2.2.0
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
 sha256sum -c freemediaplexorg-$VER.tar.gz.sha256 && tar -xzf freemediaplexorg-$VER.tar.gz

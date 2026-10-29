@@ -3,7 +3,7 @@
 ## Between 2.x releases
 
 ```bash
-VER=2.1.0     # the new version
+VER=2.2.0     # the new version
 cd /tmp
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
@@ -27,9 +27,17 @@ The installer:
   `tinymediamanager.service`.
 
 Back to the previous version: `sudo bash /opt/mediaorg/install.sh --rollback`. It swaps the program back and
-restores that version's systemd units (enabled timers stay enabled). If you changed the configuration
-with the new version, restore `/etc/mediaorg/config.toml.bak` first. Read the
-[CHANGELOG](../CHANGELOG.md) for changes of behaviour before upgrading.
+restores that version's systemd units (enabled timers stay enabled). From 2.2.0 on it first checks that the
+previous version can read the configuration, and refuses, changing nothing, when it cannot: set the settings
+that version does not know back to their defaults with `sudo mediaorg config unset <key>` (the sections below
+name them), then run the rollback again. Read the [CHANGELOG](../CHANGELOG.md) for changes of behaviour before
+upgrading.
+
+### 2.1.x to 2.2.0
+
+Nothing to change: `review.delete_duplicates` ([USAGE.md](USAGE.md#the-review-folder)) is off until you set
+it. The memory of Freebox tasks (`/var/lib/mediaorg/freebox_seen.json`) starts with the first run. Before
+rolling back to 2.1.x, unset it (`sudo mediaorg config unset review.delete_duplicates`).
 
 ### 2.0.x to 2.1.0
 

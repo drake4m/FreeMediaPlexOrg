@@ -84,13 +84,15 @@ class Op:
     src: str | None = None
     # media | sidecar | duplicate | duplicate-sidecar | leftovers | library-dir | review-dir | cleanup |
     # identical-duplicate (unlink of a download byte-identical to `ref`)
+    # | same-duplicate (unlink of a download of the media `ref` holds, review.delete_duplicates)
     # | empty-placeholder (unlink of a 0-byte library file)
     role: str = ""
     expect_size: int | None = None
     expect_mtime: float | None = None
     expect_tree: frozenset | None = None  # folder renames: exact file set expected at execution
-    ref: str | None = None  # identical-duplicate: the library file whose content equals dst
+    ref: str | None = None  # identical-/same-duplicate: the library file holding the same media as dst
     ref_mtime: float | None = None
+    ref_size: int | None = None  # same-duplicate: size of `ref` when planned (it must be unchanged)
     # duplicate / duplicate-sidecar: the review cleaning may delete it after the retention (journaled);
     # False = kept in review until the user decides
     purge: bool = False
@@ -99,13 +101,14 @@ class Op:
 @dataclass
 class FileDecision:
     file: FileEntry
-    action: str  # move | duplicate | delete (byte-identical duplicate) | skip
+    action: str  # move | duplicate | delete (byte-identical duplicate, or `same`) | skip
     reason: str
     media: MediaId | None = None
     target: str | None = None
     notes: list[str] = field(default_factory=list)
     refs: list[str] = field(default_factory=list)  # duplicate: library file(s) holding the same media
     purge: bool = False  # duplicate: certain enough to be deleted from review after the retention
+    same: bool = False  # delete: a duplicate of refs[0] deleted by review.delete_duplicates (bytes may differ)
 
 
 @dataclass

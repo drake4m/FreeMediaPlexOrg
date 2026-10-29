@@ -2,8 +2,9 @@
 
 A run folder is cleaned once the run that filled it is older than the configured number of days
 (review.duplicates_retention_days / review.leftovers_retention_days; 0 = at the end of the same
-run, -1 = never).  The age comes from the run id in the folder name (UTC start time of that run),
-not from file times, which moves do not change.  Only folders whose name is exactly a run id are
+run, -1 = never; with review.delete_duplicates, certain duplicates are deleted by the next run).
+The age comes from the run id in the folder name (UTC start time of that run), not from file times,
+which moves do not change.  Only folders whose name is exactly a run id are
 considered; anything else in the review folder (your own notes, other folders) is never touched.
 Cleaning happens only in --apply runs without --only, after the moves.
 
@@ -180,7 +181,7 @@ def due(cfg: Config, now: float | None = None) -> list[Due]:
     """Review run folders whose retention has expired, with what would be deleted and kept (read-only)."""
     now = time.time() if now is None else now
     journal_dir = os.path.join(cfg.paths.state_dir, "journal")
-    days_for = {"duplicates": cfg.review.duplicates_retention_days, "leftovers": cfg.review.leftovers_retention_days}
+    days_for = {"duplicates": cfg.review.duplicates_retention, "leftovers": cfg.review.leftovers_retention_days}
     out: list[Due] = []
     for kind in KINDS:
         days = days_for[kind]

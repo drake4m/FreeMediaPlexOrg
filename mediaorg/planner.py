@@ -28,6 +28,7 @@ from .review import disposable, human, video_like
 from .scan import is_archive
 
 IDENTICAL = "byte-identical copy, deleted from Downloads"
+SAME = "not larger than the library copy: deleted from Downloads (review.delete_duplicates)"
 EXTRA_MAX_BYTES = 1 << 30  # a sample or trailer is never 1 GiB or more
 SAMPLE_RATIO = 0.10  # a sample/trailer name counts next to bigger videos only below 10 % of the largest
 OTHER_BYTES_MIN = 64 << 20  # non-video data that can outweigh a movie's video (software, disc image)
@@ -177,21 +178,30 @@ class Planner:
     def _delete_op(self, d: FileDecision) -> Op:
         ref = d.refs[0]
         st = self.lib.stat_of(ref)
+        if d.same:
+            return Op("unlink", dst=d.file.path, role="same-duplicate", expect_size=d.file.size,
+                      expect_mtime=d.file.mtime, ref=ref, ref_mtime=st[1] if st else None,
+                      ref_size=st[0] if st else None)
         return Op("unlink", dst=d.file.path, role="identical-duplicate", expect_size=d.file.size,
                   expect_mtime=d.file.mtime, ref=ref, ref_mtime=st[1] if st else None)
 
     def _certain(self, f: FileEntry, m: MediaId, folder_year: int | None, refs: list[str]) -> str:
-        """'' when a duplicate is certain enough for the review cleaning to delete it after the retention,
-        else why it is kept for the user to decide: the release and the library folder
-        must agree on the year (a title alone also fits a remake or another country's show), the
-        download must not be a REPACK/PROPER or one part of a split file, and it must not be larger than
-        the library copy (a repaired or better download)."""
+        """'' when a duplicate is certain enough to be deleted (after the review retention, or at once with
+        review.delete_duplicates), else why it is kept for the user to decide: the release and the library
+        folder must agree on the year (a title alone also fits a remake or another country's show; with
+        delete_duplicates an episode needs only no conflicting year, its show folder being the one folder
+        of that title), the download must not be a REPACK/PROPER or one part of a split file, and it must not
+        be larger than the library copy (a repaired or better download)."""
         what = "show" if m.kind == "episode" else "film"
         if m.proper:
             return "it is a REPACK/PROPER release"
         if m.part:
             return "it is one part of a split file"
-        if m.year is None or folder_year is None or m.year != folder_year:
+        if m.kind == "episode" and self.cfg.review.delete_duplicates:
+            # the show folder was matched by its title (only one fits); a year, when both have one, must agree
+            if m.year is not None and folder_year is not None and m.year != folder_year:
+                return "the release year is not the show folder's"
+        elif m.year is None or folder_year is None or m.year != folder_year:
             return f"no year in the release name to confirm it is the same {what}"
         sizes = [st[0] for st in (self.lib.stat_of(r) for r in refs) if st]
         if not sizes:
@@ -200,10 +210,19 @@ class Planner:
             return "it is larger than the library copy (a repaired or better copy?)"
         return ""
 
+    def _largest(self, refs: list[str]) -> str | None:
+        """The biggest library file of `refs` that can be read (the copy a duplicate is compared with)."""
+        sized = [(st[0], r) for r, st in ((r, self.lib.stat_of(r)) for r in refs) if st and st[0] > 0]
+        return max(sized)[1] if sized else None
+
     def _duplicate(self, f: FileEntry, m: MediaId, reason: str, note: str, refs: list[str],
                    folder_year: int | None) -> FileDecision:
         keep = self._certain(f, m, folder_year, refs)
-        days = self.cfg.review.duplicates_retention_days
+        if not keep and self.cfg.review.delete_duplicates:
+            ref = self._largest(refs)
+            if ref:
+                return FileDecision(f, "delete", f"{reason}; {SAME}", m, notes=[note], refs=[ref], same=True)
+        days = self.cfg.review.duplicates_retention
         if keep or days < 0:
             extra = f"kept in review until you decide: {keep}" if keep else "kept in review (retention -1)"
         else:
@@ -399,7 +418,7 @@ class Planner:
                 continue
             if owner.action == "move":
                 video = owner.target
-            elif owner.action == "delete" and owner.refs:
+            elif owner.action == "delete" and owner.refs and not owner.same:  # byte-identical: same release
                 video = owner.refs[0]
             else:
                 continue

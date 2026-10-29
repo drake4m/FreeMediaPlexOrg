@@ -119,6 +119,11 @@ class Review:
     # A download whose bytes are identical to the library file of the same episode/movie is deleted
     # instead of being moved to review/duplicates (false = keep it for review like other duplicates).
     delete_identical_duplicates: bool = True
+    # A download the library already has (same episode, or same film and year; not a REPACK/PROPER, not
+    # one part of a split file, not larger than the library copy) is deleted in the run that finds it,
+    # even when its bytes differ; other duplicates still go to review/duplicates and are kept there.
+    # Certain duplicates that earlier runs moved to review are then deleted by the next run.
+    delete_duplicates: bool = False
     # review/duplicates/<run-id>/ and review/leftovers/<run-id>/ are deleted this many days after
     # that run; 0 = at the end of the same run; -1 = never (delete them by hand).
     duplicates_retention_days: int = 7
@@ -128,6 +133,12 @@ class Review:
     tmm_trash_retention_days: int = 7
     # The same in minutes, for a short retention; set one of the two keys, not both.
     tmm_trash_retention_minutes: int | None = None
+
+    @property
+    def duplicates_retention(self) -> int:
+        """Days after which the certain duplicates in review/duplicates are deleted (-1 = never);
+        0 with delete_duplicates: duplicates are not kept."""
+        return 0 if self.delete_duplicates else self.duplicates_retention_days
 
     @property
     def tmm_trash_retention_seconds(self) -> int:

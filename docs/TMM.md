@@ -140,9 +140,9 @@ sudo mediaorg config set naming.tmm_staging=true
 - It has no effect while `tmm.enabled = false`.
 
 Folders already stuck because of a case-only rename are repaired once with
-`contrib/fix-case-renames.sh` (installed in `/opt/mediaorg/app/contrib/`). It lists the folders whose tMM
-`.nfo` title and year differ from the folder name only in case, renames each to `<name> [mediaorg]`, then
-sends the tMM calls, so tMM renames them as new items:
+`contrib/fix-case-renames.sh` (installed in `/opt/mediaorg/app/contrib/`). It lists the folders holding a
+video whose tMM `.nfo` title and year differ from the folder name only in case, renames each to
+`<name> [mediaorg]` (with today's date), then sends the tMM calls, so tMM renames them as new items:
 
 ```bash
 sudo bash /opt/mediaorg/app/contrib/fix-case-renames.sh           # dry-run: lists them, changes nothing

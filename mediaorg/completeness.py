@@ -8,7 +8,10 @@ them in Downloads (and download them again).  Hence:
     (on_seeding = "wait"), or, with on_seeding = "stop", a run that files the item stops the
     task first (stop_seeding) and files it once the Freebox lists it as stopped.  Files the
     task did not fully receive are blocked.
-  * items the Freebox does not list (copied manually) and method "quiescence":
+  * an item whose task is gone from the Freebox (removed in Freebox OS, its files kept): what the
+    Freebox last said about it decides (SeenTasks): ready if the task had received everything, never
+    filed if it had not (the files are incomplete).
+  * items the Freebox never listed (copied manually) and method "quiescence":
     nothing modified for min_quiet_minutes and no temporary download extensions.
 """
 
@@ -108,6 +111,63 @@ class FilesCache:
             log.debug("Freebox file cache not saved: %s", exc)
 
 
+class SeenTasks:
+    """What the Freebox last said about the task of each Downloads entry (<state_dir>/freebox_seen.json),
+    for entries whose task disappears from the Freebox (removed in Freebox OS, the files kept): such an
+    entry is ready when its task had received everything, and is never filed when it had not.
+    {entry key (NFC, casefolded name): {"task": id, "pct": 0..10000, "status": str, "t": epoch,
+    "blocked": [local paths of files the task did not fully receive, e.g. deselected ones]}};
+    entries gone from Downloads are forgotten."""
+
+    def __init__(self, path: str | None):
+        self.path = path
+        self.old: dict[str, dict] = {}
+        self.new: dict[str, dict] = {}
+        if path:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, dict):
+                    self.old = {k: v for k, v in data.items() if isinstance(v, dict)
+                                and isinstance(v.get("task"), int) and isinstance(v.get("pct"), int)}
+            except (OSError, ValueError):
+                self.old = {}
+
+    def get(self, key: str) -> dict | None:
+        return self.old.get(key)
+
+    def observe(self, state: FreeboxState) -> None:
+        """Remember the least advanced task of every entry now in Downloads; keep the last record of an
+        entry that has no task now; forget entries no longer in Downloads."""
+        if state.present is None:  # Downloads could not be listed: forget nothing
+            self.new = dict(self.old)
+        now = int(time.time())
+        for key in (state.present if state.present is not None else state.by_entry):
+            tasks = state._tasks_for(key, loose=True)
+            if tasks:
+                t = min(tasks, key=lambda x: (x.rx_pct, x.id))
+                rec = {"task": t.id, "pct": int(t.rx_pct), "status": t.status, "t": now}
+                blocked = sorted({os.path.normpath(local) for x in tasks for f in state._task_files(x)
+                                  if (f.priority == "no_dl" or f.rx < f.size)
+                                  and (local := state.to_local(f.filepath))})
+                if blocked:
+                    rec["blocked"] = blocked
+                self.new[key] = rec
+            elif key in self.old:
+                self.new[key] = self.old[key]
+
+    def save(self) -> None:
+        if not self.path or self.new == self.old:
+            return
+        tmp = self.path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8", errors="backslashreplace") as fh:
+                json.dump(self.new, fh, ensure_ascii=False)
+            os.replace(tmp, self.path)
+        except OSError as exc:  # only a memory: never fatal
+            log.debug("Freebox task memory not saved: %s", exc)
+
+
 class FreeboxState:
     """Snapshot of Freebox download tasks for one run.
 
@@ -121,10 +181,11 @@ class FreeboxState:
     """
 
     def __init__(self, cfg: Config, client: FreeboxClient, files_cache: FilesCache | None = None,
-                 present: set[str] | None = None):
+                 present: set[str] | None = None, seen: SeenTasks | None = None):
         self.cfg = cfg
         self.client = client
         self.cache = files_cache
+        self.seen = seen
         self.remote_dir = _nfc(cfg.freebox.remote_downloads_dir.rstrip("/"))
         self.by_entry: dict[str, list[Task]] = {}
         self._by_name_only: dict[str, list[Task]] = {}  # tasks whose files map to no present entry
@@ -134,6 +195,7 @@ class FreeboxState:
                 present = {_nfc(n).casefold() for n in os.listdir(cfg.paths.downloads)}
             except OSError:
                 present = None  # unknown: every entry named by a task's files counts as present
+        self.present = present
         for t in client.tasks():
             ddir = _nfc(t.download_dir.rstrip("/"))
             if ddir != self.remote_dir and not ddir.startswith(self.remote_dir + "/"):
@@ -210,11 +272,27 @@ class FreeboxState:
         blocked: set[str] = set()
         stop: set[int] = set()
         tasks = self._tasks_for(item.name, loose=not item.is_dir)
+        seen = None if tasks or not self.seen else self.seen.get(_nfc(item.name).casefold())
         if tasks:
             why = self._task_check(tasks, blocked, stop)
             if why:
                 return Readiness(False, why)
             reason = "Freebox: " + ", ".join(sorted({t.status for t in tasks}))
+        elif seen is not None:
+            # its task is gone from the Freebox (removed in Freebox OS, the files kept): nothing writes or
+            # seeds these files any more, but only a task that had received everything left complete files
+            if seen["pct"] < 10000:
+                return Readiness(False, f"its Freebox task {seen['task']} is gone; it was last seen "
+                                        f"'{seen.get('status', '?')}' at {seen['pct'] / 100:.1f} %, so the files "
+                                        "are incomplete: add the download again in Freebox OS, or delete them")
+            temp = [f.rel for f in item.files if f.ext in self.cfg.completeness.temp_extensions]
+            if temp:
+                return Readiness(False, f"temporary download file present: {temp[0]}")
+            partial = seen.get("blocked")
+            if isinstance(partial, list):  # files it never fully received (deselected) stay blocked
+                blocked.update(p for p in partial if isinstance(p, str))
+            reason = (f"its Freebox task {seen['task']} is gone, removed after it had received everything "
+                      f"(last seen '{seen.get('status', '?')}')")
         elif self.cfg.completeness.untracked == "quiescence":
             r = quiescence(item, self.cfg, now)
             if not r.ready:
@@ -274,10 +352,17 @@ def stop_seeding(client: FreeboxClient, task_ids, timeout_s: float | None = None
         try:
             client.stop_task(tid)
         except FreeboxApiError as exc:
+            # refused: the task may have reached its stop ratio ('done'), been paused or removed meanwhile
+            again, _ = listed()
+            t = again.get(tid)
+            if t is not None and _finished(t):
+                log.info("Freebox task %s is now '%s' at 100 %%: nothing left to stop", tid, t.status)
+                now[tid] = t
+                continue
             if stopped:
                 log.warning("Freebox task(s) %s stopped, but not task %s (%s): the item waits; stopped tasks stay "
                             "stopped", ", ".join(map(str, stopped)), tid, exc)
-            if exc.code == "task_not_found":
+            if exc.code == "task_not_found" or t is None:
                 return False, f"Freebox task {tid} is gone (removed meanwhile?); the next run looks again"
             return False, f"Freebox task {tid} could not be stopped ({exc}); it keeps seeding"
         stopped.append(tid)
@@ -290,7 +375,10 @@ def stop_seeding(client: FreeboxClient, task_ids, timeout_s: float | None = None
     while True:
         pending = [t for t in now.values() if not _finished(t)]
         if not pending:
-            return True, f"Freebox task {', '.join(map(str, ids))} was seeding: stopped"
+            if stopped:
+                return True, f"Freebox task {', '.join(map(str, stopped))} was seeding: stopped"
+            states = ", ".join(sorted({t.status for t in now.values()}))
+            return True, f"Freebox task {', '.join(map(str, ids))} is now '{states}' at 100 %: nothing to stop"
         if time.monotonic() >= deadline:
             t = pending[0]
             return False, (f"Freebox task {t.id} is still '{t.status}' {timeout_s:g} s after the stop request; "
@@ -326,6 +414,7 @@ def make_assessor(cfg: Config, client_factory=None):
         raise ConfigError("freebox.remote_downloads_dir is not set (see `sudo mediaorg freebox status`)")
     client = freebox_session(cfg, client_factory)
     cache = FilesCache(os.path.join(cfg.paths.state_dir, "freebox_files.json"))
+    seen = SeenTasks(os.path.join(cfg.paths.state_dir, "freebox_seen.json"))
     try:
         # Fail closed if the configured folder is not the Freebox's download folder: otherwise
         # no task would map to Downloads and seeding torrents would look "untracked".
@@ -335,13 +424,15 @@ def make_assessor(cfg: Config, client_factory=None):
             raise FreeboxError(f"freebox.remote_downloads_dir is {cfg.freebox.remote_downloads_dir!r} but the "
                                f"Freebox downloads into {fb_dir!r}; fix the config "
                                "(see `sudo mediaorg freebox status`)")
-        state = FreeboxState(cfg, client, cache)
+        state = FreeboxState(cfg, client, cache, seen=seen)
+        seen.observe(state)
     except FreeboxError:
         client.logout()
         raise
 
     def close() -> None:
         cache.save()
+        seen.save()
         client.logout()
 
     return state.assess, close
