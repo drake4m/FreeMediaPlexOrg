@@ -12,6 +12,7 @@ use the watched-folder mode instead ([INSTALL.md](INSTALL.md)).
 - [3. Authorize mediaorg on the Freebox](#3-authorize-mediaorg-on-the-freebox)
 - [4. Check, then automate](#4-check-then-automate)
 - [When is a download finished?](#when-is-a-download-finished)
+- [Stop seeding when a download is filed](#stop-seeding-when-a-download-is-filed)
 - [Freebox restart, internet outage](#freebox-restart-internet-outage)
 
 ## How it fits together
@@ -20,14 +21,16 @@ use the watched-folder mode instead ([INSTALL.md](INSTALL.md)).
 Freebox download manager ──writes──> <Freebox disk>/Downloads
                                             │ SMB share, mounted on the Linux machine (/mnt/freebox)
                                             ▼
-mediaorg ── HTTPS (Freebox OS API, read-only) ──> "is the task of this download done?"
+mediaorg ── HTTPS (Freebox OS API) ──> "is the task of this download done?"
          ── renames on the share ──> <Freebox disk>/Movies, <Freebox disk>/Series
 ```
 
 - Downloads, Movies and Series are folders of **one** Freebox share, so filing is an instant rename on the
   Freebox's disk: nothing travels over the network.
-- The API is used read-only: mediaorg lists download tasks, their files and the download settings. It
-  never adds, stops or deletes a task. The app needs only the download manager permission.
+- mediaorg lists download tasks, their files and the download settings. It never adds or deletes a task;
+  it stops one only with `completeness.on_seeding = "stop"` (a finished torrent still seeding, right before
+  it is filed: [below](#stop-seeding-when-a-download-is-filed)). The app needs only the download manager
+  permission.
 - The connection to the Freebox is HTTPS, checked against Free's root certificates
   (`/etc/mediaorg/freebox-ca.pem`, installed by `install.sh`).
 
@@ -37,10 +40,11 @@ mediaorg ── HTTPS (Freebox OS API, read-only) ──> "is the task of this d
 - File sharing over SMB enabled in Freebox OS, preferably with a user name and password.
 - The Linux machine on the Freebox's local network: the API answers at `https://mafreebox.freebox.fr`
   (`freebox.base_url`).
-- A BitTorrent seeding **stop ratio above 0** in the download manager's settings. With 0, the Freebox seeds
-  until a task is stopped by hand, so downloads would never count as finished. A low ratio files downloads
-  sooner; a higher one gives more back to other peers. `mediaorg check` and `mediaorg freebox status` show
-  the value.
+- A BitTorrent seeding **stop ratio above 0** in the download manager's settings, unless
+  `completeness.on_seeding = "stop"`. With 0, the Freebox seeds until a task is stopped by hand, so
+  downloads would never count as finished. A low ratio files downloads sooner; a higher one gives more back
+  to other peers, but a torrent nobody downloads from may never reach it. `mediaorg check` and
+  `mediaorg freebox status` show the value.
 
 ## 1. Mount the Freebox share
 
@@ -133,6 +137,7 @@ sudo mediaorg service install --enable
 Every task whose download folder is Downloads (or a folder below it) is matched to the entry of Downloads
 that holds its files. An entry is finished when **all** tasks writing into it are `done`, or stopped with
 100 % received; until then it is `WAIT` with the task's state (`downloading`, `seeding`, `checking` ...).
+A `seeding` task can instead be stopped when its download is filed ([below](#stop-seeding-when-a-download-is-filed)).
 Files you deselected in a torrent, or that are not fully received, are never moved.
 
 Entries that no Freebox task wrote (files you copied there yourself) follow `completeness.untracked`:
@@ -146,6 +151,24 @@ sudo mediaorg config set completeness.untracked=quiescence
 A run asks the Freebox only when Downloads holds something that needs a verdict, and keeps the file lists
 of finished tasks in a small cache (`/var/lib/mediaorg/freebox_files.json`), so a timer every 5 minutes
 costs the Freebox next to nothing.
+
+## Stop seeding when a download is filed
+
+By default (`completeness.on_seeding = "wait"`) a finished torrent stays in Downloads while it seeds, until
+the Freebox reaches its stop ratio and says `done`. With few peers that can take days. To file finished
+downloads right away instead:
+
+```bash
+sudo mediaorg config set completeness.on_seeding=stop
+```
+
+Then a run that files a download whose task is still `seeding` (100 % received) first stops the task through
+the API, waits until the Freebox lists it as `stopped` (up to 15 seconds), and only then moves the files.
+The report says `Freebox task N was seeding: stopped`. Only tasks of downloads that the run files are
+stopped: a dry-run, a run blocked by the safety cap or by a busy tMM, and downloads left in Downloads
+(`SKIP`) stop nothing. If the Freebox refuses or does not confirm the stop, the download is `WAIT` and
+nothing of it moves; the next run looks again. A stopped task stays in the Freebox's list; resuming it in
+Freebox OS after its files were filed would download them again.
 
 ## Freebox restart, internet outage
 

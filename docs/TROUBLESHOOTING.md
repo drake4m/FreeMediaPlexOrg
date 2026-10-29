@@ -91,7 +91,8 @@ has the rules.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| everything stays `WAIT ... Freebox task is seeding` | the stop ratio is 0 (seed forever) or not reached (few peers) | set a stop ratio above 0 in the Freebox download manager, or stop the task by hand at 100 % |
+| everything stays `WAIT ... Freebox task is seeding` | the stop ratio is 0 (seed forever) or not reached (few peers) | `sudo mediaorg config set completeness.on_seeding=stop` ([FREEBOX.md](FREEBOX.md#stop-seeding-when-a-download-is-filed)); or a stop ratio above 0; or stop the task by hand at 100 % |
+| `WAIT ... Freebox task N is still 'stopping' ...`, `... could not be stopped (...)` | `on_seeding = "stop"`: the Freebox did not confirm the stop within 15 s, or refused it | nothing for a slow stop (the next run files it); for a refusal, the app's download manager permission (`sudo mediaorg check`) |
 | exit 3, `freebox.remote_downloads_dir is ... but the Freebox downloads into ...` | the Freebox download folder changed | `sudo mediaorg freebox status`, then set `freebox.remote_downloads_dir` as it shows |
 | exit 3, `freebox.remote_downloads_dir is not set` | Freebox mode without the folder | `sudo mediaorg freebox status`, then `config set` as it shows |
 | `no Freebox app token at ...` | not authorized yet | `sudo mediaorg freebox authorize` |
@@ -109,6 +110,8 @@ has the rules.
 | `[FAIL] tMM endpoint /api/movie listed in /api/docs (listed: [...])` | a tMM version with other endpoint names | set `tmm.movie_endpoint` / `tmm.tvshow_endpoint` to the names listed |
 | `tmm.base_url ... http://` refused | plain HTTP to another machine would send the key unencrypted | use `https://`, or `tmm.allow_insecure_http = true` on a network you trust |
 | a new item is not scraped or renamed | no result good enough for tMM, tMM still in its first media-information pass, or a later call made tMM forget it | scrape it once in tMM; [TMM.md](TMM.md#known-limitations) |
+| a movie is scraped but keeps its folder and file names; tMM's log: `Rename problem ... [NoSuchFileException]`, `Renaming aborted` | on an SMB/CIFS share tMM (Linux) cannot rename a folder whose new name differs only in letter case | `sudo mediaorg config set naming.tmm_staging=true` for new folders; fix the stuck one once ([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)) |
+| `[warn] N folder(s) still end with ' [mediaorg]' after a day` | tMM did not rename them: not scraped yet, folder renaming off in tMM's renamer settings, or tMM not reached | scrape and rename them in tMM; turn tMM's folder renaming on, or `naming.tmm_staging=false` and rename the folders by hand |
 | tMM busy for hours right after its setup | its first media-information pass over the whole library | wait; do not restart tMM meanwhile |
 | tMM's log: `UnknownHostException: api.themoviedb.org` (Docker helper) | the container has no working DNS | `TMM_DNS_OPTS` ([TMM.md](TMM.md#optional-tinymediamanager-in-docker)) |
 | `systemctl status tinymediamanager` shows `activating (auto-restart)` | the library's mount is missing; tMM waits for it | mount the share |

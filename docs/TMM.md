@@ -8,6 +8,7 @@ then scrape and rename only the new items. The integration is optional and off b
 - [Set up the integration](#set-up-the-integration)
 - [The calls in detail](#the-calls-in-detail)
 - [Changing the calls](#changing-the-calls)
+- [Library on an SMB/CIFS share: staging names](#library-on-an-smbcifs-share-staging-names)
 - [Trash cleaning](#trash-cleaning)
 - [Optional: tinyMediaManager in Docker](#optional-tinymediamanager-in-docker)
 - [Known limitations](#known-limitations)
@@ -112,6 +113,38 @@ sudo mediaorg tmm sync          # prints the calls
 the shape of the values is checked (a list of tables, each with an `action`); the actions and scopes are
 tMM's ([its API documentation](https://www.tinymediamanager.org/docs/http-api)), so look at what
 `tmm sync` prints before relying on a change.
+
+## Library on an SMB/CIFS share: staging names
+
+On an SMB server, names are case-insensitive: `Rise of the Conqueror (2026)` and `Rise Of The Conqueror
+(2026)` are one folder. tMM handles a rename that only changes the letter case on Windows and macOS (through
+a temporary name), but not on Linux, where tMM (5.3.4 and the coming 5.3.5) takes the new name for another,
+existing folder. The rename then fails (`Rename problem ... [NoSuchFileException]`, `Renaming aborted` in
+tMM's log) and the movie keeps its folder and file names. It happens whenever the title tMM renames to
+differs from the release's title only in case: `Gladiator Ii` -> `Gladiator II`, `of the` -> `Of The`.
+
+With `naming.tmm_staging = true`, mediaorg names every new movie and show folder
+`Title (Year) [mediaorg]`. tMM ignores text in `[...]` when it reads a folder name (it searches
+`Rise of the Conqueror`, 2026), and its rename then always changes more than the case, which works:
+
+```bash
+sudo mediaorg config set naming.tmm_staging=true
+```
+
+- Existing folders keep their names; new episodes and second copies are filed into a staged folder as into
+  any other (mediaorg reads the title without the tag).
+- The tag goes away only when tMM renames the folder, so tMM's folder renaming must be on (its default).
+  `mediaorg check` warns about folders that still have it after a day, and advises the setting when the
+  library is on an SMB share and tMM is enabled.
+- It has no effect while `tmm.enabled = false`.
+
+A folder already stuck because of a case-only rename is fixed once by renaming it by hand to a name that
+differs by more than the case, for example by adding the tag, then letting tMM update, scrape and rename:
+
+```bash
+sudo -u mediaorg mv -n -T "/srv/media/movies/Rise of the Conqueror (2026)" "/srv/media/movies/Rise of the Conqueror (2026) [mediaorg]"
+sudo mediaorg tmm sync --apply
+```
 
 ## Trash cleaning
 
@@ -218,6 +251,9 @@ start it again. **Back up** `/etc/tmm` and tMM's data folder with the service st
 
 - tMM scrapes automatically only a result that is good enough for it; the threshold is a setting for movies
   only. Such items stay unscraped until you scrape them in tMM.
+- On Linux, tMM cannot rename a folder or file whose new name differs only in letter case when the library
+  is on an SMB/CIFS share: see [staging names](#library-on-an-smbcifs-share-staging-names) for folders. A
+  video whose release name already equals tMM's file name except for the case keeps its name.
 - A new API call drops the "new" marks of previous calls (tMM's documentation). Whether a call already
   queued keeps them is not documented: in the worst case, two downloads filed within minutes while tMM is
   busy leave the first one unscraped. The nightly sync does not scrape it either (it is not "new" any more);

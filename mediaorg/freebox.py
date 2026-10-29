@@ -1,7 +1,9 @@
-"""Minimal Freebox OS API client: app authorisation, session, read download tasks.
+"""Minimal Freebox OS API client: app authorisation, session, read download tasks, stop a seeding task.
 
-Reference: https://dev.freebox.fr/sdk/os/ (login, download).  Only read calls are
-made during normal runs; the single write is the one-time authorisation request.
+Reference: https://dev.freebox.fr/sdk/os/ (login, download).  Runs only read, except with
+completeness.on_seeding = "stop": a finished BitTorrent download that is still seeding is then
+stopped (PUT downloads/{id} {"status": "stopped"}) right before it is filed.  The other write is
+the one-time authorisation request.
 """
 
 from __future__ import annotations
@@ -155,7 +157,13 @@ class FreeboxClient:
                 pass
             self.session_token = None
 
-    # -- downloads (read-only) ----------------------------------------------------------------
+    # -- downloads ----------------------------------------------------------------------------
+    def stop_task(self, task_id: int) -> None:
+        """Stop a download task (it no longer seeds; Freebox OS can resume it).  Needs the
+        'downloader' permission, which login() requires anyway."""
+        self._ok(self._request("PUT", self._api(f"downloads/{task_id}"), {"status": "stopped"}),
+                 f"stop download task {task_id}")
+
     def tasks(self) -> list[Task]:
         res = self._ok(self._request("GET", self._api("downloads/")), "list downloads") or []
         out = []

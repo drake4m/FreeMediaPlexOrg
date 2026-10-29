@@ -72,6 +72,9 @@ class Readiness:
     ready: bool
     reason: str
     blocked_files: frozenset[str] = frozenset()  # absolute paths not fully downloaded
+    # completeness.on_seeding = "stop": Freebox tasks still seeding a finished download; the item is
+    # ready once a run that files it has stopped them
+    stop_tasks: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -113,3 +116,4 @@ class ItemPlan:
     decisions: list[FileDecision] = field(default_factory=list)
     ops: list[Op] = field(default_factory=list)
     tmm_paths: dict[str, set[str]] = field(default_factory=dict)  # 'movie'|'tvshow' -> library paths
+    stop_tasks: frozenset[int] = frozenset()  # Freebox tasks to stop before the ops (Readiness.stop_tasks)

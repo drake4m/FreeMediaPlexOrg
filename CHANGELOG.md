@@ -5,6 +5,31 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-29
+
+Two opt-in settings; with neither set, 2.1.0 files exactly as 2.0.0.
+
+### Added
+
+- `completeness.on_seeding = "stop"` (Freebox): a run that files a finished torrent still seeding first
+  stops its task through the Freebox OS API (`PUT downloads/{id}`), waits up to 15 seconds for the Freebox
+  to list it as stopped, then moves it. Dry-runs, runs that cannot act (safety cap, busy tMM) and downloads
+  left in Downloads stop nothing; a stop that is refused or not confirmed leaves the download `WAIT`.
+  `check` accepts a BitTorrent stop ratio of 0 with it. Needed when torrents with few peers never reach the
+  stop ratio.
+- `naming.tmm_staging = true`: new movie and show folders are named `Title (Year) [mediaorg]` until
+  tinyMediaManager renames them (tMM ignores text in `[...]` when it reads a folder name). On Linux with the
+  library on an SMB/CIFS share, tMM cannot rename a folder whose new name differs only in letter case
+  (`Rise of the Conqueror` -> `Rise Of The Conqueror`): its rename fails with `NoSuchFileException` and the
+  movie keeps its names. With the tag, its rename always changes more than the case. Folders with the tag
+  are matched like any other; `check` reports those still tagged after a day, and advises the setting when
+  tMM is enabled and the library is on an SMB share.
+
+### Changed
+
+- A `WAIT ... Freebox task is seeding` line now names `completeness.on_seeding = "stop"`.
+- `status` shows when seeding is stopped and when new folders are staged for tMM.
+
 ## [2.0.0] - 2026-10-26
 
 First public release. The 1.x releases were private; [UPGRADING.md](docs/UPGRADING.md) covers moving from
@@ -73,5 +98,6 @@ them.
 - The units run without capabilities, with a read-only system, private `/tmp` and devices, a system-call
   filter, and write access only to the state folder and the folder that holds the media folders.
 
-[Unreleased]: https://github.com/drake4m/FreeMediaPlexOrg/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/drake4m/FreeMediaPlexOrg/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/drake4m/FreeMediaPlexOrg/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/drake4m/FreeMediaPlexOrg/releases/tag/v2.0.0

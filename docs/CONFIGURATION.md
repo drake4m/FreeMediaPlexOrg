@@ -115,7 +115,7 @@ When is a download finished? "quiescence": its files have not changed for min_qu
 | `min_quiet_minutes` | int | `10` | Minutes without any change before a download counts as finished (method "quiescence", and untracked entries with untracked = "quiescence"). Minimum 5. |
 | `temp_extensions` | list | `[".part", ".!qb", ".crdownload", ".tmp", ".partial", ".!ut", ".aria2"]` | A file with one of these extensions marks its download as unfinished. |
 | `untracked` | enum (wait / quiescence) | `"wait"` | Method "freebox": entries the Freebox does not list as a task (copied by hand). "wait" = never move them; "quiescence" = move them after min_quiet_minutes. |
-| `on_seeding` | enum (wait) | `"wait"` | Method "freebox": a task that is still seeding is never moved. *(advanced)* |
+| `on_seeding` | enum (wait / stop) | `"wait"` | Method "freebox": a finished BitTorrent download that is still seeding. "wait" = moved once the Freebox says done (at its stop ratio); "stop" = a run that files it stops the task first (it no longer seeds), then moves it. |
 
 ### `[freebox]`
 
@@ -226,5 +226,6 @@ Names of the folders mediaorg creates; existing folders are always reused. Place
 | `series_folder` | str | `"{title} ({year})"` | New show folder. |
 | `series_folder_no_year` | str | `"{title}"` | New show folder when the release has no year. |
 | `season_folder` | str | `"Season {season}"` | Season folder inside a show folder. |
+| `tmm_staging` | bool | `false` | New movie and show folders end with " [mediaorg]" until tinyMediaManager renames them (with tmm.enabled only; tMM ignores text in [...] when it reads the name). Needed when tMM runs on Linux with the library on an SMB/CIFS share: there tMM cannot rename a folder whose new name differs only in letter case ('Rise of the ...' -&gt; 'Rise Of The ...'). |
 
 <!-- END GENERATED -->

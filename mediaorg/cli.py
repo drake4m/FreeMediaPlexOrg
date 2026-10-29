@@ -243,6 +243,12 @@ def cmd_run(cfg: Config, args) -> int:
                     busy = _tmm_busy(cfg)
                     blocked = "tmm" if busy else None
             will_act = apply and bool(todo) and blocked is None
+            if any(p.stop_tasks for p in todo):
+                # completeness.on_seeding = "stop": stopped only by a run that files them, before the report
+                # is written, so that an item whose task did not stop is reported as WAIT and not moved
+                _stop_seeding(cfg, todo, apply, will_act)
+                todo = [p for p in todo if p.status in ("ready", "partial")]
+                will_act = apply and bool(todo) and blocked is None
             will_purge = apply and not args.only and blocked != "cap"
 
             # what to print: everything; in scheduled (--quiet) runs only what is acted on or changed
@@ -354,6 +360,41 @@ def cmd_run(cfg: Config, args) -> int:
     except LockBusy as exc:
         log.warning("%s", exc)
         return EXIT_LOCKED
+
+
+def _stop_seeding(cfg: Config, todo, apply: bool, will_act: bool) -> None:
+    """Items whose Freebox task still seeds the finished download (completeness.on_seeding = "stop"): a run that
+    files them stops the tasks first and files only what the Freebox then lists as stopped; any other run says
+    what will happen.  An item whose task did not stop becomes WAIT (not moved in this run)."""
+    pending = [p for p in todo if p.stop_tasks]
+    if not will_act:
+        for p in pending:
+            ids = ", ".join(str(i) for i in sorted(p.stop_tasks))
+            note = (f"Freebox task {ids} is seeding: an --apply run stops it, then files the download" if not apply
+                    else f"Freebox task {ids} is seeding: stopped when the download can be filed")
+            p.reason = f"{note}; {p.reason}" if p.reason else note
+        return
+    from .completeness import freebox_session, stop_seeding
+    from .freebox import FreeboxError
+
+    try:
+        client = freebox_session(cfg)
+    except (FreeboxError, ConfigError) as exc:
+        for p in pending:
+            p.status, p.reason = "wait", f"the seeding Freebox task could not be stopped: {exc}"
+        return
+    try:
+        for p in pending:
+            try:
+                ok, text = stop_seeding(client, p.stop_tasks, names={i: p.item.name for i in p.stop_tasks})
+            except FreeboxError as exc:
+                ok, text = False, f"the seeding Freebox task could not be stopped: {exc}"
+            if ok:
+                p.reason = f"{text}; {p.reason}" if p.reason else text
+            else:
+                p.status, p.reason = "wait", text
+    finally:
+        client.logout()
 
 
 def _apply(cfg: Config, args, todo, run_id: str, unfinished, info) -> tuple[int, dict[str, set[str]] | None]:
@@ -817,9 +858,14 @@ def cmd_check(cfg: Config, args) -> int:
             line(ok_dir, f"freebox.remote_downloads_dir {cfg.freebox.remote_downloads_dir!r} matches the "
                          f"Freebox download folder {conf['download_dir']!r}")
             sr = conf["stop_ratio"]
-            line(isinstance(sr, int) and sr > 0,
+            stop = cfg.completeness.on_seeding == "stop"
+            line(isinstance(sr, int) and (sr > 0 or stop),
                  f"BitTorrent stop ratio {format(sr / 100, 'g') if isinstance(sr, int) else sr}"
-                 + (" (0 = seed forever: finished downloads would never move)" if sr == 0 else ""))
+                 + ((" (0 = seed forever: finished downloads would never move; or set completeness.on_seeding "
+                     "= \"stop\")") if sr == 0 and not stop else ""))
+            line(True, "completeness.on_seeding = " + (
+                "stop: a finished torrent still seeding is stopped when it is filed" if stop
+                else "wait: a seeding torrent is filed once the Freebox says done (stop ratio reached)"))
         except FreeboxError as exc:
             line(False, str(exc))
     else:
@@ -843,7 +889,57 @@ def cmd_check(cfg: Config, args) -> int:
                                       + ("" if ep in paths else f" (listed: {sorted(paths)})"))
         except (TmmError, TmmUnavailable, OSError) as exc:
             line(False, f"tMM: {exc}")
+    _check_staging(cfg, line)
     return EXIT_OK if ok else EXIT_PRECONDITION
+
+
+STAGING_GRACE_SECONDS = 86400  # a staged folder older than this: tMM has evidently not renamed it
+
+
+def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> list[str]:
+    """Library folders that still carry the staging tag, unchanged for `older_than` seconds (relative paths)."""
+    from .normalize import is_staged
+
+    now, out = time.time(), []
+    for root in (cfg.paths.movies, cfg.paths.series):
+        try:
+            with os.scandir(root) as it:
+                for e in it:
+                    try:
+                        if (e.is_dir(follow_symlinks=False) and is_staged(e.name)
+                                and now - e.stat(follow_symlinks=False).st_mtime >= older_than):
+                            out.append(os.path.relpath(e.path, cfg.base_dir))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return sorted(out)
+
+
+def _check_staging(cfg: Config, line) -> None:
+    """naming.tmm_staging: whether it is needed (tMM + an SMB/CIFS library), and staged folders tMM left alone."""
+    from .configcmd import detect_mount
+    from .normalize import STAGING_TAG
+
+    staging = cfg.naming.tmm_staging
+    if staging and not cfg.tmm.enabled:
+        line("warn", "naming.tmm_staging is set but tMM is disabled: new folders are named without the tag")
+    elif staging:
+        line(True, f"naming.tmm_staging: new movie and show folders end with ' {STAGING_TAG}' until tMM renames them")
+    elif cfg.tmm.enabled:
+        try:
+            entry = detect_mount(cfg.paths.movies)
+        except OSError:  # reported by the folder checks above
+            entry = None
+        if entry is not None and entry.fstype in ("cifs", "smb3", "smbfs"):
+            line("warn", f"the library is on an SMB share ({entry.fstype}): tMM on Linux cannot rename a folder whose "
+                         f"new name differs only in letter case; to avoid it: sudo mediaorg config set "
+                         f"naming.tmm_staging=true")
+    stale = _staged_folders(cfg)
+    if stale:
+        shown = ", ".join(repr(s) for s in stale[:3]) + (f" (+{len(stale) - 3} more)" if len(stale) > 3 else "")
+        line("warn", f"{len(stale)} folder(s) still end with ' {STAGING_TAG}' after a day: tMM has not renamed them "
+                     f"(scrape and rename them in tMM; is folder renaming on in tMM's renamer settings?): {shown}")
 
 
 def cmd_library(cfg: Config, args) -> int:
@@ -1049,11 +1145,15 @@ def cmd_status(args) -> int:
         print(f"configuration: {path}")
         print(f"  downloads  {cfg.paths.downloads}\n  movies     {cfg.paths.movies}\n  tv         {cfg.paths.series}\n"
               f"  review     {cfg.paths.review}\n  state      {cfg.paths.state_dir}")
-        print("  finished downloads: " + ("reported done by the Freebox" if c.method == "freebox"
-                                          else f"unchanged for {c.min_quiet_minutes} min"))
+        print("  finished downloads: " + (("reported done by the Freebox"
+                                           + ("; a torrent still seeding is stopped when it is filed"
+                                              if c.on_seeding == "stop" else ""))
+                                          if c.method == "freebox" else f"unchanged for {c.min_quiet_minutes} min"))
         print("  mount check: " + (f"{cfg.mount.mountpoint} from {cfg.mount.source} ({cfg.mount.fstype})"
                                    if cfg.mount else "none"))
-        print("  tinyMediaManager: " + (f"enabled ({cfg.tmm.base_url})" if cfg.tmm.enabled else "disabled"))
+        print("  tinyMediaManager: " + (f"enabled ({cfg.tmm.base_url})" if cfg.tmm.enabled else "disabled")
+              + ("; new folders end with ' [mediaorg]' until tMM renames them"
+                 if cfg.tmm.enabled and cfg.naming.tmm_staging else ""))
     print("systemd:")
     for line in status_lines():
         print(f"  {line}")
