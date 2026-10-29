@@ -69,7 +69,7 @@ INFO run 20261026T004209Z-96c2: 8 operation(s) done, 0 failed
 |---|---|---|
 | `READY` | identified and finished | filed; what remains of it (`.nfo`, samples, extras) goes to the review folder, so the entry leaves Downloads |
 | `PARTIAL` | some of its videos are identified, others are not | the identified ones are filed; the entry stays in Downloads with the rest |
-| `WAIT` | not finished: still downloading, still seeding (Freebox), or changed less than `completeness.min_quiet_minutes` ago | nothing; looked at again in the next run |
+| `WAIT` | not finished: still downloading, still seeding (Freebox; see `completeness.on_seeding`), or changed less than `completeness.min_quiet_minutes` ago | nothing; looked at again in the next run |
 | `SKIP` | not identified with certainty; the reason is given | stays in Downloads, untouched |
 | `IGNORED` | not a video download (software, documents, an unfinished `.part` file, a lone sample) | never touched |
 
