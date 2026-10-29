@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import ssl
@@ -100,7 +101,7 @@ class FreeboxClient:
                 raise FreeboxError(f"HTTP {exc.code} from {url}") from exc
             finally:
                 exc.close()
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
             raise FreeboxError(f"cannot reach Freebox API at {url}: {exc}") from exc
         if not isinstance(payload, dict):
             raise FreeboxError(f"unexpected response from {url}")
@@ -167,14 +168,17 @@ class FreeboxClient:
     def tasks(self) -> list[Task]:
         res = self._ok(self._request("GET", self._api("downloads/")), "list downloads") or []
         out = []
-        for t in res:
-            out.append(Task(
-                id=int(t["id"]), name=t.get("name", ""), status=t.get("status", "unknown"),
-                rx_pct=int(t.get("rx_pct", 0)), size=int(t.get("size", 0)),
-                download_dir=_b64(t.get("download_dir")), type=t.get("type", ""),
-                stop_ratio=t.get("stop_ratio"), error=t.get("error"),
-                created_ts=t.get("created_ts") if isinstance(t.get("created_ts"), int) else None,
-            ))
+        try:
+            for t in res:
+                out.append(Task(
+                    id=int(t["id"]), name=t.get("name", ""), status=t.get("status", "unknown"),
+                    rx_pct=int(t.get("rx_pct", 0)), size=int(t.get("size", 0)),
+                    download_dir=_b64(t.get("download_dir")), type=t.get("type", ""),
+                    stop_ratio=t.get("stop_ratio"), error=t.get("error"),
+                    created_ts=t.get("created_ts") if isinstance(t.get("created_ts"), int) else None,
+                ))
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise FreeboxError(f"unexpected download list from the Freebox: {exc!r}") from exc
         return out
 
     def download_config(self) -> dict:
@@ -197,11 +201,14 @@ class FreeboxClient:
                 return []
             raise
         out = []
-        for f in res:
-            out.append(TaskFile(
-                filepath=_b64(f.get("filepath")), size=int(f.get("size", 0)), rx=int(f.get("rx", 0)),
-                status=f.get("status", ""), priority=f.get("priority", "normal"),
-            ))
+        try:
+            for f in res:
+                out.append(TaskFile(
+                    filepath=_b64(f.get("filepath")), size=int(f.get("size", 0)), rx=int(f.get("rx", 0)),
+                    status=f.get("status", ""), priority=f.get("priority", "normal"),
+                ))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise FreeboxError(f"unexpected file list from the Freebox (task {task_id}): {exc!r}") from exc
         return out
 
 

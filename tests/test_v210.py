@@ -36,7 +36,9 @@ class FreeboxBase(unittest.TestCase):
             self.fb.close()
         self.nas.cleanup()
 
-    def env(self, tasks, on_seeding="stop", files=None, **fb_kwargs):
+    def env(self, tasks, on_seeding="stop", files=None, safety=None, **fb_kwargs):
+        if self.fb:
+            self.fb.close()
         self.fb = FakeFreebox(tasks=tasks, files=files, download_dir=REMOTE.rstrip("/"), **fb_kwargs)
         tok = os.path.join(self.nas.state, "tok.json")
         os.makedirs(self.nas.state, exist_ok=True)
@@ -45,7 +47,7 @@ class FreeboxBase(unittest.TestCase):
         os.chmod(tok, 0o600)
         return cli_env(self.nas, completeness={"method": "freebox", "on_seeding": on_seeding},
                        freebox={"remote_downloads_dir": REMOTE, "base_url": self.fb.url,
-                                "allow_insecure_http": True, "token_file": tok})
+                                "allow_insecure_http": True, "token_file": tok}, **({"safety": safety} if safety else {}))
 
     def movie_download(self, with_subtitle=False):
         touch(f"{self.nas.dl}/{MOVIE}/{MOVIE}.mkv", b"movie")
@@ -104,7 +106,6 @@ class TestStopSeeding(FreeboxBase):
         self.assertIn(f"[WAIT] {MOVIE}  -- Freebox task 1 is still 'stopping'", out)
         self.assertEqual(self.nas.snapshot(), before)
         # next run: the Freebox lists it as stopped at 100 %: filed without another stop request
-        self.fb.tasks[0]["status"] = "stopped"
         with self.env([task(1, MOVIE, "stopped")], files=files) as path:
             code, out = run_cli("-c", path, "run", "--apply")
         self.assertEqual(code, 0, out)
@@ -118,7 +119,68 @@ class TestStopSeeding(FreeboxBase):
             code, out = run_cli("-c", path, "run", "--apply")
         self.assertEqual(code, 0, out)
         self.assertIn(f"[WAIT] {MOVIE}  -- Freebox task 1 could not be stopped", out)
+        self.assertNotIn("move ", out)  # a WAIT item shows no planned moves (2.0 never did either)
+        self.assertNotIn("new movie folder", out)
         self.assertEqual(self.nas.snapshot(), before)
+        runs = os.path.join(self.nas.state, "runs")
+        with open(os.path.join(runs, sorted(os.listdir(runs))[-1]), encoding="utf-8") as fh:
+            item = json.load(fh)["items"][0]
+        self.assertEqual((item["status"], item["decisions"], item["ops"]), ("wait", [], []))
+
+    def test_answer_cut_short_is_a_freebox_error_not_a_crash(self):
+        files = self.movie_download()
+        before = self.nas.snapshot()
+        with self.env([task(1, MOVIE, "seeding")], files=files, on_stop="truncate") as path:
+            code, out = run_cli("-c", path, "run", "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"[WAIT] {MOVIE}  -- the seeding Freebox task could not be stopped: cannot reach Freebox API", out)
+        self.assertEqual(self.nas.snapshot(), before)
+
+    def test_low_free_space_stops_nothing(self):
+        files = self.movie_download()
+        before = self.nas.snapshot()
+        with self.env([task(1, MOVIE, "seeding")], files=files, safety={"min_free_mb": 999999999}) as path:
+            code, out = run_cli("-c", path, "run", "--apply")
+        self.assertEqual(code, 3, out)  # EXIT_PRECONDITION, as without the Freebox
+        self.assertEqual(self.puts(), [])
+        self.assertIn("is seeding: not stopped, this run cannot file it (only", out)
+        self.assertEqual(self.nas.snapshot(), before)
+
+    def test_mount_gone_before_the_stop_stops_nothing(self):
+        from mediaorg.guards import PreconditionError
+
+        files = self.movie_download()
+        before = self.nas.snapshot()
+        calls = []
+
+        def check_mount(cfg):  # mounted when the run starts, gone afterwards
+            calls.append(1)
+            if len(calls) > 1:
+                raise PreconditionError("the share is not mounted")
+
+        with self.env([task(1, MOVIE, "seeding")], files=files) as path, \
+                mock.patch("mediaorg.guards.check_mount", side_effect=check_mount):
+            code, out = run_cli("-c", path, "run", "--apply")
+        self.assertEqual(code, 3, out)
+        self.assertEqual(self.puts(), [])
+        self.assertIn("not stopped, this run cannot file it (the share is not mounted)", out)
+        self.assertEqual(self.nas.snapshot(), before)
+
+    def test_mixed_run_files_only_what_stopped(self):
+        other = "Lanternfall.2026.1080p.WEB.H264-GRP"
+        files = self.movie_download()
+        touch(f"{self.nas.dl}/{other}/{other}.mkv", b"other")
+        age_tree(f"{self.nas.dl}/{other}")
+        files[2] = [{"filepath": b64(f"{REMOTE}{other}/{other}.mkv"), "size": 5, "rx": 5, "status": "done",
+                     "priority": "normal"}]
+        with self.env([task(1, MOVIE, "seeding"), task(2, other, "seeding")], files=files) as path:
+            self.fb.refuse_ids = {2}
+            code, out = run_cli("-c", path, "run", "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.filed(), out)
+        self.assertIn(f"[WAIT] {other}  -- Freebox task 2 could not be stopped", out)
+        self.assertTrue(os.path.exists(f"{self.nas.dl}/{other}/{other}.mkv"))
+        self.assertFalse(os.path.exists(f"{self.nas.movies}/Lanternfall (2026)"))
 
     def test_unfinished_download_is_never_stopped(self):
         files = self.movie_download()
@@ -199,6 +261,23 @@ class TestStopSeedingUnit(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("Freebox task 99 is gone", why)
 
+    def test_no_task_is_stopped_unless_all_can_be(self):
+        self.fb.tasks.append(task(3, "Other.Task", "checking"))
+        ok, why = comp.stop_seeding(self.client, [2, 3], timeout_s=0)
+        self.assertFalse(ok)
+        self.assertIn("Freebox task 3 is now 'checking'", why)
+        self.assertEqual([r for r in self.fb.requests if r[0] == "PUT"], [])
+        self.assertEqual(self.fb.tasks[0]["status"], "seeding")
+
+    def test_a_refusal_after_a_stop_is_reported(self):
+        self.fb.tasks.append(task(3, "Other.Task", "seeding"))
+        self.fb.refuse_ids = {3}
+        with self.assertLogs("mediaorg.completeness", "WARNING") as logs:
+            ok, why = comp.stop_seeding(self.client, [2, 3], timeout_s=0)
+        self.assertFalse(ok)
+        self.assertIn("Freebox task 3 could not be stopped", why)
+        self.assertIn("Freebox task(s) 2 stopped, but not task 3", logs.output[0])
+
     def test_stop_seeding_rereads_the_state_first(self):
         self.fb.tasks[0]["status"] = "checking"  # changed since the run read it: never stopped
         ok, why = comp.stop_seeding(self.client, [2], timeout_s=0)
@@ -229,6 +308,15 @@ class TestOnSeedingConfig(unittest.TestCase):
             self.assertEqual(nas.config(completeness={"on_seeding": "stop"}).completeness.on_seeding, "stop")
             with self.assertRaises(C.ConfigError):
                 nas.config(completeness={"on_seeding": "pause"})
+        finally:
+            nas.cleanup()
+
+    def test_check_warns_without_the_freebox(self):
+        nas = FakeNas()
+        try:
+            with cli_env(nas, completeness={"on_seeding": "stop"}) as path:
+                _, out = run_cli("-c", path, "check")
+            self.assertIn("[warn] completeness.on_seeding = stop has no effect: it needs completeness.method", out)
         finally:
             nas.cleanup()
 
@@ -293,6 +381,22 @@ class TestStagingNames(unittest.TestCase):
         ep = plans["Vellum.Gate.S01E02.1080p.WEB.h264-GRP.mkv"].decisions[0]
         self.assertEqual(ep.target, f"{self.nas.series}/Vellum Gate {STAGING_TAG}/Season 1/"
                                     "Vellum.Gate.S01E02.1080p.WEB.h264-GRP.mkv")
+
+    def test_episodes_of_a_new_show_in_one_run_share_its_staged_folder(self):
+        for e in (1, 2, 3):
+            touch(f"{self.nas.dl}/Vellum.Gate.2025.S01E0{e}.1080p.WEB.h264-GRP.mkv")
+        plans = self.plan()
+        targets = {os.path.dirname(p.decisions[0].target) for p in plans.values()}
+        self.assertEqual(targets, {f"{self.nas.series}/Vellum Gate (2025) {STAGING_TAG}/Season 1"})
+
+    def test_name_too_long_with_the_tag_is_skipped(self):
+        title = "Very." * 47 + "Long"  # 'Very Very ... Long (2026)' fits 255 bytes, not with the tag
+        touch(f"{self.nas.dl}/{title}.2026.mkv")
+        d = next(iter(self.plan().values())).decisions[0]
+        self.assertEqual(d.action, "skip")
+        self.assertIn("cannot build movie folder name: name longer than 255 bytes", d.reason)
+        d = next(iter(self.plan(staging=False).values())).decisions[0]
+        self.assertEqual(d.action, "move", d.reason)
 
     def test_apply_creates_the_staged_folder(self):
         touch(f"{self.nas.dl}/{MOVIE}.mkv")

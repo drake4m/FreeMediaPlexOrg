@@ -92,7 +92,8 @@ has the rules.
 | Symptom | Cause | Fix |
 |---|---|---|
 | everything stays `WAIT ... Freebox task is seeding` | the stop ratio is 0 (seed forever) or not reached (few peers) | `sudo mediaorg config set completeness.on_seeding=stop` ([FREEBOX.md](FREEBOX.md#stop-seeding-when-a-download-is-filed)); or a stop ratio above 0; or stop the task by hand at 100 % |
-| `WAIT ... Freebox task N is still 'stopping' ...`, `... could not be stopped (...)` | `on_seeding = "stop"`: the Freebox did not confirm the stop within 15 s, or refused it | nothing for a slow stop (the next run files it); for a refusal, the app's download manager permission (`sudo mediaorg check`) |
+| `WAIT ... Freebox task N is still 'stopping' ...`, `... could not be stopped (...)`, `the seeding Freebox task could not be stopped: cannot reach Freebox API ...` | `on_seeding = "stop"`: the Freebox did not confirm the stop within 15 s, refused it, or did not answer | nothing for a slow stop or a short outage (the next run files it); for a refusal, the app's download manager permission (`sudo mediaorg check`) |
+| `[READY] ... is seeding: not stopped, this run cannot file it (...)` | `on_seeding = "stop"` and the run cannot move anything (too little free space, mount missing): nothing is stopped | fix what is named; the next run stops and files it |
 | exit 3, `freebox.remote_downloads_dir is ... but the Freebox downloads into ...` | the Freebox download folder changed | `sudo mediaorg freebox status`, then set `freebox.remote_downloads_dir` as it shows |
 | exit 3, `freebox.remote_downloads_dir is not set` | Freebox mode without the folder | `sudo mediaorg freebox status`, then `config set` as it shows |
 | `no Freebox app token at ...` | not authorized yet | `sudo mediaorg freebox authorize` |

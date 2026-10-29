@@ -263,22 +263,26 @@ def stop_seeding(client: FreeboxClient, task_ids, timeout_s: float | None = None
     now, why = listed()
     if why:
         return False, why
-    requested = False
+    # all or nothing as far as the box allows: no task is stopped unless every task of the item is finished
+    # or seeding at 100 % now
     for tid in ids:
         t = now[tid]
-        if _finished(t):
-            continue
-        if not (t.status == "seeding" and t.rx_pct >= 10000):
+        if not (_finished(t) or (t.status == "seeding" and t.rx_pct >= 10000)):
             return False, f"Freebox task {tid} is now '{t.status}'; the next run looks again"
+    stopped: list[int] = []
+    for tid in (i for i in ids if not _finished(now[i])):
         try:
             client.stop_task(tid)
         except FreeboxApiError as exc:
+            if stopped:
+                log.warning("Freebox task(s) %s stopped, but not task %s (%s): the item waits; stopped tasks stay "
+                            "stopped", ", ".join(map(str, stopped)), tid, exc)
             if exc.code == "task_not_found":
                 return False, f"Freebox task {tid} is gone (removed meanwhile?); the next run looks again"
             return False, f"Freebox task {tid} could not be stopped ({exc}); it keeps seeding"
-        requested = True
+        stopped.append(tid)
         log.info("Freebox task %s (%r) was seeding a finished download: stop requested", tid, names.get(tid, "?"))
-    if requested:
+    if stopped:
         now, why = listed()
         if why:
             return False, why
@@ -304,7 +308,11 @@ def freebox_session(cfg: Config, client_factory=None) -> FreeboxClient:
     token = load_token(cfg.freebox.token_file)
     client = client_factory() if client_factory else FreeboxClient(
         cfg.freebox.base_url, cfg.freebox.ca_file, cfg.freebox.timeout_seconds)
-    client.login(token["app_id"], token["app_token"])
+    try:
+        client.login(token["app_id"], token["app_token"])
+    except FreeboxError:
+        client.logout()  # a session opened without the downloader permission is closed too
+        raise
     return client
 
 

@@ -13,12 +13,16 @@ Two opt-in settings; with neither set, 2.1.0 files exactly as 2.0.0.
 
 - `completeness.on_seeding = "stop"` (Freebox): a run that files a finished torrent still seeding first
   stops its task through the Freebox OS API (`PUT downloads/{id}`), waits up to 15 seconds for the Freebox
-  to list it as stopped, then moves it. Dry-runs, runs that cannot act (safety cap, busy tMM) and downloads
-  left in Downloads stop nothing; a stop that is refused or not confirmed leaves the download `WAIT`.
+  to list it as stopped, then moves it. Dry-runs, runs that cannot move anything (safety cap, busy tMM, low
+  free space, missing mount) and downloads left in Downloads stop nothing; no task of a download is stopped
+  unless all of them are finished or seeding at 100 %; a stop that is refused, unanswered or not confirmed
+  leaves the download `WAIT`. A task covers its whole torrent (the unfiled files of a `PARTIAL` download stop
+  seeding with it).
   `check` accepts a BitTorrent stop ratio of 0 with it. Needed when torrents with few peers never reach the
   stop ratio.
-- `naming.tmm_staging = true`: new movie and show folders are named `Title (Year) [mediaorg]` until
-  tinyMediaManager renames them (tMM ignores text in `[...]` when it reads a folder name). On Linux with the
+- `naming.tmm_staging = true` (with `tmm.enabled`): new movie and show folders are named
+  `Title (Year) [mediaorg]` until tinyMediaManager renames them (tMM ignores text in `[...]` when it reads a
+  folder name). On Linux with the
   library on an SMB/CIFS share, tMM cannot rename a folder whose new name differs only in letter case
   (`Rise of the Conqueror` -> `Rise Of The Conqueror`): its rename fails with `NoSuchFileException` and the
   movie keeps its names. With the tag, its rename always changes more than the case. Folders with the tag
@@ -30,7 +34,10 @@ Two opt-in settings; with neither set, 2.1.0 files exactly as 2.0.0.
 ### Changed
 
 - A `WAIT ... Freebox task is seeding` line now names `completeness.on_seeding = "stop"`.
-- `status` shows when seeding is stopped and when new folders are staged for tMM.
+- `status` shows when seeding is stopped and when new folders are staged for tMM; `check` warns when
+  `completeness.on_seeding = "stop"` is set without the Freebox, or `naming.tmm_staging` without tMM.
+- Freebox API answers cut short or malformed are reported as Freebox errors (the run stops cleanly)
+  instead of ending the run with a traceback.
 
 ## [2.0.0] - 2026-10-26
 

@@ -366,22 +366,38 @@ def _stop_seeding(cfg: Config, todo, apply: bool, will_act: bool) -> None:
     """Items whose Freebox task still seeds the finished download (completeness.on_seeding = "stop"): a run that
     files them stops the tasks first and files only what the Freebox then lists as stopped; any other run says
     what will happen.  An item whose task did not stop becomes WAIT (not moved in this run)."""
+    from .guards import PreconditionError, check_mount
+
     pending = [p for p in todo if p.stop_tasks]
-    if not will_act:
+    cannot = ""
+    if will_act:  # the run's last checks before moving, made before anything is stopped
+        try:
+            check_mount(cfg)
+            free = _free_mb(cfg.paths.state_dir)
+            if cfg.safety.min_free_mb and free < cfg.safety.min_free_mb:
+                cannot = f"only {free} MB free in {cfg.paths.state_dir}"
+        except (PreconditionError, OSError) as exc:
+            cannot = str(exc)
+    if not will_act or cannot:
         for p in pending:
             ids = ", ".join(str(i) for i in sorted(p.stop_tasks))
             note = (f"Freebox task {ids} is seeding: an --apply run stops it, then files the download" if not apply
+                    else f"Freebox task {ids} is seeding: not stopped, this run cannot file it ({cannot})" if cannot
                     else f"Freebox task {ids} is seeding: stopped when the download can be filed")
             p.reason = f"{note}; {p.reason}" if p.reason else note
         return
     from .completeness import freebox_session, stop_seeding
     from .freebox import FreeboxError
 
+    def waits(p, why: str) -> None:  # reported like any WAIT item: no planned moves, nothing done
+        p.status, p.reason = "wait", why
+        p.decisions, p.ops, p.tmm_paths, p.stop_tasks = [], [], {}, frozenset()
+
     try:
         client = freebox_session(cfg)
     except (FreeboxError, ConfigError) as exc:
         for p in pending:
-            p.status, p.reason = "wait", f"the seeding Freebox task could not be stopped: {exc}"
+            waits(p, f"the seeding Freebox task could not be stopped: {exc}")
         return
     try:
         for p in pending:
@@ -392,7 +408,7 @@ def _stop_seeding(cfg: Config, todo, apply: bool, will_act: bool) -> None:
             if ok:
                 p.reason = f"{text}; {p.reason}" if p.reason else text
             else:
-                p.status, p.reason = "wait", text
+                waits(p, text)
     finally:
         client.logout()
 
@@ -889,7 +905,7 @@ def cmd_check(cfg: Config, args) -> int:
                                       + ("" if ep in paths else f" (listed: {sorted(paths)})"))
         except (TmmError, TmmUnavailable, OSError) as exc:
             line(False, f"tMM: {exc}")
-    _check_staging(cfg, line)
+    _check_seeding_and_staging(cfg, line)
     return EXIT_OK if ok else EXIT_PRECONDITION
 
 
@@ -916,11 +932,14 @@ def _staged_folders(cfg: Config, older_than: float = STAGING_GRACE_SECONDS) -> l
     return sorted(out)
 
 
-def _check_staging(cfg: Config, line) -> None:
-    """naming.tmm_staging: whether it is needed (tMM + an SMB/CIFS library), and staged folders tMM left alone."""
+def _check_seeding_and_staging(cfg: Config, line) -> None:
+    """completeness.on_seeding without the Freebox; naming.tmm_staging: whether it is needed (tMM + an SMB/CIFS
+    library), and staged folders tMM left alone."""
     from .configcmd import detect_mount
     from .normalize import STAGING_TAG
 
+    if cfg.completeness.on_seeding == "stop" and cfg.completeness.method != "freebox":
+        line("warn", "completeness.on_seeding = stop has no effect: it needs completeness.method = \"freebox\"")
     staging = cfg.naming.tmm_staging
     if staging and not cfg.tmm.enabled:
         line("warn", "naming.tmm_staging is set but tMM is disabled: new folders are named without the tag")

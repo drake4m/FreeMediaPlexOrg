@@ -164,11 +164,18 @@ sudo mediaorg config set completeness.on_seeding=stop
 
 Then a run that files a download whose task is still `seeding` (100 % received) first stops the task through
 the API, waits until the Freebox lists it as `stopped` (up to 15 seconds), and only then moves the files.
-The report says `Freebox task N was seeding: stopped`. Only tasks of downloads that the run files are
-stopped: a dry-run, a run blocked by the safety cap or by a busy tMM, and downloads left in Downloads
-(`SKIP`) stop nothing. If the Freebox refuses or does not confirm the stop, the download is `WAIT` and
-nothing of it moves; the next run looks again. A stopped task stays in the Freebox's list; resuming it in
-Freebox OS after its files were filed would download them again.
+The report says `Freebox task N was seeding: stopped`.
+
+- Only a run that files the download stops its task: a dry-run, a run blocked by the safety cap, by a busy
+  tMM, by too little free space or a missing mount, and a download left in Downloads (`SKIP`) stop nothing.
+- A task is stopped only if every task writing into the download is finished or seeding at 100 % when the
+  run is about to stop it; the state is read again first.
+- A task covers its whole torrent: the unfiled files of a `PARTIAL` download, and the other entries of a
+  torrent without a top folder, stop seeding with it.
+- If the Freebox refuses, does not answer, or does not confirm the stop, the download is `WAIT` and nothing of
+  it moves; the next run looks again.
+- A stopped task stays in the Freebox's list; resuming it in Freebox OS after its files were filed would
+  download them again.
 
 ## Freebox restart, internet outage
 

@@ -37,8 +37,8 @@ that has a year (unless the file names another year); otherwise file and folder 
 An existing library folder is reused when exactly one fits: a show folder with or without year, a movie
 folder with the same year, or the only folder of that title if it has no year yet. Otherwise a new one is
 created as `Title (Year)` (`Title` when no year is known; the names come from `[naming]`). With
-`naming.tmm_staging`, a new folder is `Title (Year) [mediaorg]` until tinyMediaManager renames it
-([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)).
+`naming.tmm_staging` and tMM enabled, a new folder is `Title (Year) [mediaorg]` until tinyMediaManager
+renames it ([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)).
 
 | What arrives in Downloads | Where it goes |
 |---|---|

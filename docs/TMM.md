@@ -131,8 +131,9 @@ With `naming.tmm_staging = true`, mediaorg names every new movie and show folder
 sudo mediaorg config set naming.tmm_staging=true
 ```
 
-- Existing folders keep their names; new episodes and second copies are filed into a staged folder as into
-  any other (mediaorg reads the title without the tag).
+- Existing folders keep their names. A staged folder is matched like any other (mediaorg reads the title
+  without the tag): new episodes go into a staged show folder, and a second copy of a movie is compared with
+  the one in its staged folder (a duplicate goes to review as usual).
 - The tag goes away only when tMM renames the folder, so tMM's folder renaming must be on (its default).
   `mediaorg check` warns about folders that still have it after a day, and advises the setting when the
   library is on an SMB share and tMM is enabled.

@@ -56,8 +56,10 @@ class FakeFreebox(_Server):
         self.download_dir = download_dir
         self.stop_ratio = stop_ratio
         # PUT downloads/{id} {"status": "stopped"}: the task becomes "stopped" ("stopped"), stays "stopping"
-        # ("stopping"), or the call fails with an API error ("refuse")
+        # ("stopping"), the call fails with an API error ("refuse", or only for the ids in refuse_ids), or the
+        # answer is cut short ("truncate")
         self.on_stop = on_stop
+        self.refuse_ids: set[int] = set()
         self.tasks = list(tasks)
         self.files = files or {}
         self.permissions = permissions if permissions is not None else {"downloader": True, "settings": False}
@@ -124,8 +126,18 @@ class FreeboxHandler(_Handler):
                 return self._send(404, {"success": False, "error_code": "task_not_found", "msg": "Tâche inconnue"})
             if body != {"status": "stopped"}:
                 return self._send(400, {"success": False, "error_code": "invalid_request"})
-            if fb.on_stop == "refuse":
+            if fb.on_stop == "refuse" or task["id"] in fb.refuse_ids:
                 return self._send(403, {"success": False, "error_code": "insufficient_rights", "msg": "Accès refusé"})
+            if fb.on_stop == "truncate":
+                task["status"] = "stopped"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "500")
+                self.end_headers()
+                self.wfile.write(b'{"success": tr')
+                self.wfile.flush()
+                self.close_connection = True
+                return None
             task["status"] = "stopped" if fb.on_stop == "stopped" else "stopping"
             return self._send(200, {"success": True, "result": task})
         return self._send(404, {"success": False, "error_code": "invalid_request"})
