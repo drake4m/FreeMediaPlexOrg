@@ -5,7 +5,7 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [2.2.0] - 2026-10-29
+## [2.2.0] - 2026-10-30
 
 One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, duplicates are handled as in
 2.1.0. Includes 2.1.0, which was not published as a release of its own.

@@ -121,7 +121,7 @@ On an SMB server, names are case-insensitive: `Rise of the Conqueror (2026)` and
 a temporary name), but not on Linux, where tMM (5.3.4 and the coming 5.3.5) takes the new name for another,
 existing folder. The rename then fails (`Rename problem ... [NoSuchFileException]`, `Renaming aborted` in
 tMM's log) and the movie keeps its folder and file names. It happens whenever the title tMM renames to
-differs from the release's title only in case: `Gladiator Ii` -> `Gladiator II`, `of the` -> `Of The`.
+differs from the release's title only in case: `Sentinel Ii` -> `Sentinel II`, `of the` -> `Of The`.
 
 With `naming.tmm_staging = true`, mediaorg names every new movie and show folder
 `Title (Year) [mediaorg]`. tMM ignores text in `[...]` when it reads a folder name (it searches
