@@ -138,13 +138,17 @@ sudo mediaorg config set naming.tmm_staging=true
   library is on an SMB share and tMM is enabled.
 - It has no effect while `tmm.enabled = false`.
 
-A folder already stuck because of a case-only rename is fixed once by renaming it by hand to a name that
-differs by more than the case, for example by adding the tag, then letting tMM update, scrape and rename:
+Folders already stuck because of a case-only rename are repaired once with
+`contrib/fix-case-renames.sh` (installed in `/opt/mediaorg/app/contrib/`). It lists the folders whose tMM
+`.nfo` title and year differ from the folder name only in case, renames each to `<name> [mediaorg]`, then
+sends the tMM calls, so tMM renames them as new items:
 
 ```bash
-sudo -u mediaorg mv -n -T "/srv/media/movies/Rise of the Conqueror (2026)" "/srv/media/movies/Rise of the Conqueror (2026) [mediaorg]"
-sudo mediaorg tmm sync --apply
+sudo bash /opt/mediaorg/app/contrib/fix-case-renames.sh           # dry-run: lists them, changes nothing
+sudo bash /opt/mediaorg/app/contrib/fix-case-renames.sh --apply   # renames them, then sends the tMM calls
 ```
+
+The commands that undo the renames are written to `/var/lib/mediaorg/case-renames-<time>.log`.
 
 ## Trash cleaning
 

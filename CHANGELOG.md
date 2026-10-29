@@ -24,6 +24,8 @@ Two opt-in settings; with neither set, 2.1.0 files exactly as 2.0.0.
   movie keeps its names. With the tag, its rename always changes more than the case. Folders with the tag
   are matched like any other; `check` reports those still tagged after a day, and advises the setting when
   tMM is enabled and the library is on an SMB share.
+- `contrib/fix-case-renames.sh`: repairs, once, the library folders tMM could not rename because only the
+  letter case differs (dry-run by default; renames them to the tagged name, then sends the tMM calls).
 
 ### Changed
 
