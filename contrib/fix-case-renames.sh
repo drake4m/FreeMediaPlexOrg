@@ -124,7 +124,12 @@ LOG="$STATE/case-renames-$(date +%Y%m%d-%H%M%S).log"
 FAILS=0
 DONE=0
 cd / || exit 1
-exec 9>>"$STATE/lock"
+LOCK="$STATE/lock"
+if [ ! -e "$LOCK" ]; then  # created as the service account: a root-owned lock file would stop every later run
+  # shellcheck disable=SC2016  # "$1" is expanded by the inner sh
+  runuser -u mediaorg -- sh -c 'umask 027 && : >> "$1"' sh "$LOCK" || die "cannot create $LOCK"
+fi
+exec 9<"$LOCK"
 flock -w 300 9 || die "a mediaorg run held the lock for 5 minutes; nothing was changed"
 for c in "${CANDS[@]}"; do
   IFS=$'\t' read -r lib name want <<< "$c"
