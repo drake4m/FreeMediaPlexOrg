@@ -33,10 +33,12 @@ SAME = "not larger than the library copy: deleted from Downloads (review.delete_
 REPLACED = "it replaces the library video (review.replace_duplicates)"
 # Release names of bonus material that guessit reads as the episode itself ('Show.S01E02.Recap', '...Inside.the.
 # Episode'): such a download never replaces a library video
+_S = r"[\s._-]?"  # words written apart or run together: 'Behind.the.Scenes', 'BehindTheScenes'
 _BONUS_WORDS = re.compile(
-    r"(?i)(?<![^\s._\-\[(])(?:recap|preview|promo|featurettes?|behind[\s._-]the[\s._-]scenes|making[\s._-]of|"
-    r"inside[\s._-]the[\s._-]episode|interviews?|deleted[\s._-]scenes?|bloopers?|gag[\s._-]reel|extras?|bonus|"
-    r"trailers?|teasers?|sneak[\s._-]peek|sample)(?![^\s._\-\])])")
+    r"(?i)(?<![^\s._\-\[(])(?:recaps?|previews?|promos?|featurettes?|behind" + _S + "the" + _S + "scenes|making" + _S
+    + "of|inside" + _S + "the" + _S + "episode|interviews?|deleted(?:" + _S + "scenes?)?|scenes?|bloopers?|gag" + _S
+    + "reels?|outtakes?|extras?|bonus|trailers?|teasers?|sneak" + _S + "peeks?|first" + _S + "look|previously" + _S
+    + "on|after" + _S + r"show|commentary|webisodes?|minisodes?|sample)(?![^\s._\-\])])")
 # A download smaller than this part of the library video does not replace it (a clip, a sample, a fake)
 REPLACE_MIN_SIZE = 0.1
 EXTRA_MAX_BYTES = 1 << 30  # a sample or trailer is never 1 GiB or more
@@ -242,8 +244,9 @@ class Planner:
         -> the decision (its operations added to `renames`), why it cannot replace it (handled as without
         the setting), or (why,) when the download looks like something else than the episode or film: then
         it is kept in review for you."""
-        names = (plan.item.name, *f.rel.split("/"))
-        bonus = next((mt.group(0) for n in names if (mt := _BONUS_WORDS.search(os.path.splitext(n)[0]))), None)
+        folders = [plan.item.name] if plan.item.is_dir else []
+        names = (*folders, *f.rel.split("/")[:-1], os.path.splitext(f.name)[0])  # extension off the file only
+        bonus = next((mt.group(0) for n in names if (mt := _BONUS_WORDS.search(n))), None)
         if bonus:
             what = "episode" if m.kind == "episode" else "film"
             return (f"its name says {bonus!r}: bonus material, not the {what}",)
@@ -280,6 +283,9 @@ class Planner:
         new = self._rename(f, dst, "media")
         gone = Op("rename", src=ref, dst=kept, role="replaced", expect_size=st[0], expect_mtime=st[1], ref=dst)
         gone.purge = True  # the review cleaning deletes it after replaced_retention_days
+        # right before it leaves, the replacement must be intact: still in Downloads when the old video goes
+        # first (same name), else already in the library
+        gone.ref_files = ((f.path, f.size, f.mtime),) if in_place else ((dst, f.size, f.mtime),)
         # nothing is deleted here: the old video moves to review; the new file goes first, so the library
         # always holds a copy, except when it takes the very name of the old one
         renames.extend([gone, new] if in_place else [new, gone])

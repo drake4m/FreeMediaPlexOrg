@@ -8,8 +8,9 @@ import os
 import time
 import unittest
 
-from mediaorg import transfer
+from mediaorg import review, transfer
 from mediaorg.model import Op
+from mediaorg.planner import _BONUS_WORDS
 
 from .helpers import OLD, FakeNas, age_tree, cli_env, run_cli, touch
 from .test_v101 import Base, rid
@@ -79,6 +80,34 @@ class TestReplaceDuplicates(Base):
         self.assertEqual(self.read(EP2), b"zz")
         self.assertEqual(len(self.replaced()), 1)
 
+    def test_same_name_download_changed_meanwhile_keeps_the_old_video_in_place(self):
+        src = self.dl("Brightwater.S01E02.1080p.mkv", b"zz")
+        plans = self.plan(review=REPLACE)
+        touch(src, b"zzzz", mtime=time.time())  # still being written
+        res, _ = self.execute(plans)
+        self.assertEqual(res.failed, 1)
+        self.assertIn("the replacement", res.errors[0])
+        self.assertEqual(self.read(EP2), b"x")  # the old video never left the library
+        self.assertEqual(self.replaced(), [])
+
+    def test_a_replaced_video_is_purged_only_once_its_replacement_landed(self):
+        jdir = os.path.join(self.nas.state, "journal")
+        new = os.path.join(self.nas.mp, SEASON1, "new.mkv")
+        kept = os.path.join(self.nas.dl, "_review", "replaced", "R", EP2)
+        for media_state, expected in (("failed", {}), ("done", {kept: 1})):
+            j = transfer.Journal(jdir, "R")
+            try:
+                seq = j.intent(Op("rename", src=os.path.join(self.nas.mp, EP2), dst=kept, role="replaced",
+                                  expect_size=1, ref=new, purge=True), "item")
+                j.write({"seq": seq, "state": "done"})
+                seq = j.intent(Op("rename", src=os.path.join(self.nas.dl, "x.mkv"), dst=new, role="media",
+                                  expect_size=2), "item")
+                j.write({"seq": seq, "state": media_state})
+            finally:
+                j.close()
+            self.assertEqual(review.journaled_duplicates(jdir, "R", ("replaced",)), expected, media_state)
+            os.unlink(j.path)
+
     def test_the_new_file_goes_in_before_the_old_one_leaves(self):
         self.dl("Brightwater.S01E02.720p.WEB.x264-GRP.mkv", b"y")
         self.assertEqual(self.roles(self.plan(review=REPLACE)[0]), [("rename", "media"), ("rename", "replaced")])
@@ -110,6 +139,20 @@ class TestReplaceDuplicates(Base):
         dups = sorted(os.path.basename(p) for p in self.review("duplicates") if os.path.isfile(p))
         self.assertEqual(dups, sorted([recap, tiny]))  # kept for you, not deleted by delete_duplicates either
         self.assertEqual(self.replaced(), [])
+
+    def test_bonus_names_in_any_spelling_or_in_the_folder_are_recognised(self):
+        for name in ("Show.S01E02.BehindTheScenes.720p", "Show.S01E02-behindthescenes", "Show.S01E02.DeletedScenes",
+                     "Show.S01E02.MakingOf", "Show.S01E02.Outtakes", "Show.S01E02.Previously.On", "Show.S01E02.Aftershow",
+                     "Show.S01E02.Commentary", "Show.S01E02.First.Look", "Show.S01E02-deleted", "Show.S01E02.Webisode"):
+            self.assertTrue(_BONUS_WORDS.search(name), name)
+        for name in ("Previewers.S01E01.1080p", "The.Recapitulation.2020.1080p", "Lantern.Bay.S01E03.REPACK.2160p.WEB"):
+            self.assertFalse(_BONUS_WORDS.search(name), name)
+        folder = "Brightwater.S01E02.Recap"  # the word ends a dotted folder name: not an extension
+        self.dl(f"{folder}/Brightwater.S01E02.1080p.WEB.x264-GRP.mkv", b"yy")
+        age_tree(os.path.join(self.nas.dl, folder))
+        d = self.plan(review=REPLACE)[0].decisions[0]
+        self.assertEqual((d.action, d.purge), ("duplicate", False))
+        self.assertIn("kept in review until you decide: not replaced: its name says 'Recap'", d.notes[-1])
 
     def test_cases_that_cannot_be_replaced_are_handled_as_before(self):
         self.lib(f"{SEASON1}/Brightwater.S01E01.2160p.mkv", b"xx")  # two library files for S01E01

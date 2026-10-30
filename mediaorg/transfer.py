@@ -316,6 +316,13 @@ def _verify_source(op: Op) -> str | None:
     if op.expect_size is not None and (
             st.st_size != op.expect_size or (op.expect_mtime and abs(st.st_mtime - op.expect_mtime) > 2)):
         return "source changed since the scan (still being written?)"
+    if op.role == "replaced":  # the library video a download replaces leaves only for an intact replacement
+        if not op.ref_files:
+            return "no replacement recorded for a replaced library video"
+        for path, size, mtime in op.ref_files:  # in place in the library, or still in Downloads (same name)
+            problem = _same_file_state(path, size, mtime)
+            if problem:
+                return f"the replacement {path} {problem} since the scan"
     return None
 
 

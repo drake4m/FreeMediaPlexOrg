@@ -14,9 +14,9 @@ and the project uses [semantic versioning](https://semver.org/).
   the new one keeps its own name (tMM's next update sees a new file, and scrapes and renames it), the
   library's NFO, artwork and subtitles stay, and the download's other files go to `review/leftovers`
   (`leftovers_retention_days = 0` deletes their release clutter at the end of the run). The old video is
-  moved to `review/replaced/<run-id>/` under its library path, and deleted after the new
-  `review.replaced_retention_days` (1 by default; 0 = at the end of the run); `undo` brings it back until
-  then. The identity rules of `delete_duplicates` apply (same episode; same film of the same year; a country
+  moved to `review/replaced/<run-id>/` under its library path, only while the new one is intact, and
+  deleted after the new `review.replaced_retention_days` (1 by default; 0 = at the end of the run), only if
+  its replacement reached the library; `undo` brings it back until then. The identity rules of `delete_duplicates` apply (same episode; same film of the same year; a country
   named by the release must be the folder's). A download named like bonus material (recap, featurette,
   preview ...) or smaller than a tenth of the library video is kept in review instead; a split part, several
   library files for that episode or film, or a library file holding other episodes too keep the download

@@ -147,10 +147,14 @@ file back. The download's other files (NFO, subtitles, samples) go to `leftovers
 `review.leftovers_retention_days = 0` the release clutter among them is deleted at the end of the run.
 
 Nothing is deleted at that moment: the new file is moved in first, then the old one to review (when the new
-file takes the very name of the old one, the old one moves first). The same identity rules apply as above
-(same episode; same film of the same year; a country must match). A download named like bonus material
-(`Recap`, `Featurette`, `Preview`, `Behind the Scenes`, `Extras` ...) or smaller than a tenth of the library
-video never replaces it: it is kept in review for you (`not replaced: ...`). A download that cannot replace
+file takes the very name of the old one, the old one moves first); the old one leaves only while the new one
+is intact, and the review cleaning deletes it only if its replacement reached the library. An interruption
+between the two moves (a crash, a NAS outage) can leave both videos in the library: delete the old one by
+hand. The same identity rules apply as above (same episode; same film of the same year; a country must
+match). A download named like bonus material (`Recap`, `Featurette`, `Preview`, `Behind the Scenes` or
+`BehindTheScenes`, `Deleted Scenes`, `Outtakes`, `Commentary`, `Extras` ..., in the file name or a folder of
+the download) or smaller than a tenth of the library video never replaces it: it is kept in review for you
+(`not replaced: ...`). A download that cannot replace
 the library video for certain (one part of a split file, several library files for that episode or film, a
 library file holding other episodes too) is handled as without the setting, and the report says why.
 Byte-identical copies are still deleted. Episodes are matched by their show's title: an undated release of a

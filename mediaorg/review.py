@@ -143,9 +143,16 @@ def journaled_duplicates(journal_dir: str, run_id: str, roles=DUPLICATE_ROLES) -
         _, ops, _ = read_journal(path)
     except (OSError, ValueError):
         return {}
-    return {r["dst"]: r.get("size") for r in ops.values()
-            if r.get("op") == "rename" and r.get("role") in roles and r.get("state") == "done"
-            and r.get("purge") is True and isinstance(r.get("dst"), str)}
+    found = {r["dst"]: r.get("size") for r in ops.values()
+             if r.get("op") == "rename" and r.get("role") in roles and r.get("state") == "done"
+             and r.get("purge") is True and isinstance(r.get("dst"), str)}
+    if "replaced" in roles:  # a replaced video only once its replacement reached the library in that run
+        landed = {r.get("dst") for r in ops.values()
+                  if r.get("op") == "rename" and r.get("role") == "media" and r.get("state") == "done"}
+        found = {dst: size for dst, size in found.items()
+                 if any(r.get("dst") == dst and r.get("ref") in landed for r in ops.values()
+                        if r.get("role") == "replaced")}
+    return found
 
 
 def _classify(root: str, kind: str, journaled: dict[str, int | None], cfg: Config
