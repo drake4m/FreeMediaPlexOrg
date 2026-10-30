@@ -127,12 +127,14 @@ class Review:
     # A download of an episode or film the library already has (same episode; same film and year) takes the
     # place of the library video, whatever its size or release: the newest download wins.  Only the video is
     # replaced (NFO, artwork, subtitles stay); a duplicate that cannot replace it (other country, split
-    # part, several library files ...) is handled as without this setting.
+    # part, several library files ...) is handled as without this setting.  The replaced video is moved to
+    # review/replaced/<run-id>/ and deleted after replaced_retention_days.
     replace_duplicates: bool = False
     # review/duplicates/<run-id>/ and review/leftovers/<run-id>/ are deleted this many days after
     # that run; 0 = at the end of the same run; -1 = never (delete them by hand).
     duplicates_retention_days: int = 7
     leftovers_retention_days: int = 7
+    replaced_retention_days: int = 1
     # tinyMediaManager's trash (<movies>/.deletedByTMM, <series>/.deletedByTMM): files are deleted once
     # mediaorg has seen them there for this many days; 0 = in the first run; -1 = never (tmmtrash.py).
     tmm_trash_retention_days: int = 7
@@ -522,7 +524,8 @@ def from_dict(data: dict, source_file: str = "<dict>") -> Config:
             raise ConfigError(f"reports.{key} must be an integer >= 0 (0 = no limit)")
 
     review_cfg = _section(data, "review", Review)
-    for key in ("duplicates_retention_days", "leftovers_retention_days", "tmm_trash_retention_days"):
+    for key in ("duplicates_retention_days", "leftovers_retention_days", "replaced_retention_days",
+                "tmm_trash_retention_days"):
         if getattr(review_cfg, key) < -1:
             raise ConfigError(f"review.{key} must be an integer: days, 0 = at the end of the run, -1 = never")
     if review_cfg.tmm_trash_retention_minutes is not None:
@@ -535,7 +538,8 @@ def from_dict(data: dict, source_file: str = "<dict>") -> Config:
     if review_cfg.delete_duplicates and not review_cfg.delete_identical_duplicates:
         raise ConfigError("review.delete_duplicates = true deletes byte-identical copies too: it cannot be "
                           "combined with review.delete_identical_duplicates = false")
-    longest = max(review_cfg.duplicates_retention_days, review_cfg.leftovers_retention_days)
+    longest = max(review_cfg.duplicates_retention_days, review_cfg.leftovers_retention_days,
+                  review_cfg.replaced_retention_days)
     if reports.journal_retention_days and longest >= 0 and reports.journal_retention_days <= longest:
         raise ConfigError(f"reports.journal_retention_days ({reports.journal_retention_days}) must be longer than "
                           f"the review retention ({longest} days): the review cleaning reads the run journals")

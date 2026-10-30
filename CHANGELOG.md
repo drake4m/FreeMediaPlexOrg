@@ -13,13 +13,14 @@ and the project uses [semantic versioning](https://semver.org/).
   of the library video, whatever its size or release: the newest download wins. Only the video is replaced:
   the new one keeps its own name (tMM's next update sees a new file, and scrapes and renames it), the
   library's NFO, artwork and subtitles stay, and the download's other files go to `review/leftovers`
-  (`leftovers_retention_days = 0` deletes their release clutter at the end of the run). The new file is moved
-  in before the old one is deleted; when it takes the very same name, the old one goes first, while the
-  download is still there. Right before the deletion both must be unchanged. The identity rules of
-  `delete_duplicates` apply (same episode; same film of the same year; a country named by the release must be
-  the folder's); a split part, several library files for that episode or film, or a library file holding
-  other episodes too keep the download from replacing it, and the report says why. `status` shows the rule;
-  `undo` lists replaced videos as not restorable.
+  (`leftovers_retention_days = 0` deletes their release clutter at the end of the run). The old video is
+  moved to `review/replaced/<run-id>/` under its library path, and deleted after the new
+  `review.replaced_retention_days` (1 by default; 0 = at the end of the run); `undo` brings it back until
+  then. The identity rules of `delete_duplicates` apply (same episode; same film of the same year; a country
+  named by the release must be the folder's). A download named like bonus material (recap, featurette,
+  preview ...) or smaller than a tenth of the library video is kept in review instead; a split part, several
+  library files for that episode or film, or a library file holding other episodes too keep the download
+  from replacing it, and the report says why. `status` shows the rule.
 
 ## [2.2.0] - 2026-10-30
 

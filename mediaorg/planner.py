@@ -16,6 +16,7 @@ derived from the renames actually planned, so a skipped decision never leaves an
 from __future__ import annotations
 
 import os
+import re
 import unicodedata
 
 from .config import Config
@@ -30,6 +31,14 @@ from .scan import is_archive
 IDENTICAL = "byte-identical copy, deleted from Downloads"
 SAME = "not larger than the library copy: deleted from Downloads (review.delete_duplicates)"
 REPLACED = "it replaces the library video (review.replace_duplicates)"
+# Release names of bonus material that guessit reads as the episode itself ('Show.S01E02.Recap', '...Inside.the.
+# Episode'): such a download never replaces a library video
+_BONUS_WORDS = re.compile(
+    r"(?i)(?<![^\s._\-\[(])(?:recap|preview|promo|featurettes?|behind[\s._-]the[\s._-]scenes|making[\s._-]of|"
+    r"inside[\s._-]the[\s._-]episode|interviews?|deleted[\s._-]scenes?|bloopers?|gag[\s._-]reel|extras?|bonus|"
+    r"trailers?|teasers?|sneak[\s._-]peek|sample)(?![^\s._\-\])])")
+# A download smaller than this part of the library video does not replace it (a clip, a sample, a fake)
+REPLACE_MIN_SIZE = 0.1
 EXTRA_MAX_BYTES = 1 << 30  # a sample or trailer is never 1 GiB or more
 SAMPLE_RATIO = 0.10  # a sample/trailer name counts next to bigger videos only below 10 % of the largest
 OTHER_BYTES_MIN = 64 << 20  # non-video data that can outweigh a movie's video (software, disc image)
@@ -57,6 +66,7 @@ class Planner:
         self.run_id = run_id
         self.review_dup = os.path.join(cfg.paths.review, "duplicates", run_id)
         self.review_left = os.path.join(cfg.paths.review, "leftovers", run_id)
+        self.review_replaced = os.path.join(cfg.paths.review, "replaced", run_id)
         self._stop_dirs = {
             cfg.paths.downloads, cfg.paths.movies, cfg.paths.series, cfg.base_dir, "/",
         }
@@ -224,11 +234,19 @@ class Planner:
 
     def _replace(self, renames: list[Op], plan: ItemPlan, f: FileEntry, m: MediaId, folder: LibFolder,
                  refs: list[str], reason: str, note: str, ref_episodes: dict[str, set[int]] | None = None
-                 ) -> FileDecision | str:
+                 ) -> FileDecision | str | tuple[str]:
         """review.replace_duplicates: the download takes the place of the library video of the same episode or
         film, whatever its size or release (the newest download wins); the other library files (NFO, artwork,
         subtitles) stay.  The download keeps its own name, so tMM's next update sees a new video and scrapes
-        and renames it.  -> the decision (its operations added to `renames`), or why it cannot replace it."""
+        and renames it.  The old video is moved to review/replaced (deleted after replaced_retention_days).
+        -> the decision (its operations added to `renames`), why it cannot replace it (handled as without
+        the setting), or (why,) when the download looks like something else than the episode or film: then
+        it is kept in review for you."""
+        names = (plan.item.name, *f.rel.split("/"))
+        bonus = next((mt.group(0) for n in names if (mt := _BONUS_WORDS.search(os.path.splitext(n)[0]))), None)
+        if bonus:
+            what = "episode" if m.kind == "episode" else "film"
+            return (f"its name says {bonus!r}: bonus material, not the {what}",)
         if m.part:
             return "it is one part of a split file"
         if m.country and country_of(unstaged(folder.name)) != m.country:
@@ -244,6 +262,9 @@ class Planner:
         st = self.lib.stat_of(ref)
         if not st or st[0] <= 0:
             return "the library copy could not be read"
+        if f.size < st[0] * REPLACE_MIN_SIZE:
+            return (f"it is {human(f.size)}, less than a tenth of the library video ({human(st[0])}): a clip or a "
+                    "sample?",)
         extra = sorted((ref_episodes or {}).get(ref, set()) - set(m.episodes)) if m.kind == "episode" else []
         if extra:
             return "the library file also holds " + ", ".join(f"S{m.season:02d}E{e:02d}" for e in extra)
@@ -252,21 +273,32 @@ class Planner:
         if not in_place and self.lib.exists_name(parent, f.dest_name, ignore=(old,)):
             return f"a file named {f.dest_name!r} already exists in {self._show(parent)!r}"
         dst = os.path.join(parent, f.dest_name)
+        rel = self._show(ref)
+        kept = os.path.join(self.review_replaced, rel if not os.path.isabs(rel) else old)
+        if not self._review_target(kept):
+            return "another replaced video of this run has the same review name"
         new = self._rename(f, dst, "media")
-        gone = Op("unlink", dst=ref, role="replaced", expect_size=st[0], expect_mtime=st[1], ref=dst)
-        if in_place:  # the same name: the old file goes first, and only while the download is still there
-            gone.ref_files = ((f.path, f.size, f.mtime),)
-            renames.extend([gone, new])
-        else:  # the new file first: the library always holds a copy
-            gone.ref_files = ((dst, f.size, f.mtime),)
-            renames.extend([new, gone])
+        gone = Op("rename", src=ref, dst=kept, role="replaced", expect_size=st[0], expect_mtime=st[1], ref=dst)
+        gone.purge = True  # the review cleaning deletes it after replaced_retention_days
+        # nothing is deleted here: the old video moves to review; the new file goes first, so the library
+        # always holds a copy, except when it takes the very name of the old one
+        renames.extend([gone, new] if in_place else [new, gone])
         self.lib.plan_remove(ref)
         self.lib.plan_file(parent, f.dest_name)
         if m.kind == "episode":
             self.lib.plan_episodes(folder.path, m.season, m.episodes)
         plan.tmm_paths.setdefault("tvshow" if m.kind == "episode" else "movie", set()).add(folder.path)
+        days = self.cfg.review.replaced_retention_days
+        when = ("kept in review until you delete it" if days < 0 else "deleted from review at the end of this run"
+                if days == 0 else f"deleted from review {days} day(s) after this run")
         return FileDecision(f, "replace", f"{reason}; {REPLACED}", m, target=dst, refs=[ref],
-                            notes=[note, f"replaces {self._show(ref)!r}, which is deleted"])
+                            notes=[note, f"replaces {rel!r}, moved to review: {when}"])
+
+    @staticmethod
+    def _kept(f: FileEntry, m: MediaId, reason: str, note: str, refs: list[str], why: str) -> FileDecision:
+        """A duplicate kept in review for you (never deleted automatically)."""
+        return FileDecision(f, "duplicate", reason, m, notes=[note, f"kept in review until you decide: not replaced: "
+                                                                    f"{why}"], refs=refs, purge=False)
 
     def _by_size(self, refs: list[str]) -> list[str] | None:
         """All library files of `refs`, biggest first, or None when one of them cannot be read or is empty."""
@@ -359,6 +391,8 @@ class Planner:
                                   note, held)
                 if isinstance(r, FileDecision):
                     return r
+                if isinstance(r, tuple):
+                    return self._kept(f, m, f"already in library: {what}{extra}", note, refs, r[0])
                 not_replaced = f"not replaced: {r}"
             d = self._duplicate(f, m, f"already in library: {what}{extra}", note, refs, match.folder,
                                 plan.item.name)
@@ -411,6 +445,11 @@ class Planner:
             folder = match.folder.path
             note, new_folder = f"movie folder {match.folder.name!r}", None
             videos = self.lib.movie_videos(folder)
+            if self.cfg.review.replace_duplicates and set(videos) & self.lib.planned_files(folder):
+                # filed or replaced by another download of this run: what the library lists under that name is
+                # not that file yet (it may be the very file being replaced)
+                return FileDecision(f, "skip", f"movie folder {match.folder.name!r} receives another download in "
+                                               f"this run; this one is handled in the next run", m)
             if videos:
                 extra = " (this release is a REPACK/PROPER)" if m.proper else ""
                 refs = [p for p in (os.path.join(folder, v) for v in videos) if self.lib.stat_of(p)]
@@ -430,6 +469,8 @@ class Planner:
                                       f"movie folder already has {videos[0]!r}{extra}", note)
                     if isinstance(r, FileDecision):
                         return r
+                    if isinstance(r, tuple):
+                        return self._kept(f, m, f"movie folder already has {videos[0]!r}{extra}", note, refs, r[0])
                     not_replaced = f"not replaced: {r}"
                 d = self._duplicate(f, m, f"movie folder already has {videos[0]!r}{extra}", note, refs,
                                     match.folder, plan.item.name)

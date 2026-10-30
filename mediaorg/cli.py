@@ -142,6 +142,9 @@ def _retention_notes(cfg: Config, plans) -> list[str]:
             "duplicate", "duplicate-sidecar"}:
         notes.append("review.duplicates_retention_days = 0: the duplicates this run moves to review are deleted "
                      "at the end of the run")
+    if cfg.review.replaced_retention_days == 0 and "replaced" in roles:
+        notes.append("review.replaced_retention_days = 0: the library videos this run replaces are deleted at the "
+                     "end of the run")
     if cfg.review.leftovers_retention_days == 0 and "leftovers" in roles:
         notes.append("review.leftovers_retention_days = 0: the leftovers this run moves to review are cleaned at "
                      "the end of the run (only release clutter and small samples are deleted)")
@@ -1210,7 +1213,10 @@ def cmd_status(args) -> int:
                  if cfg.tmm.enabled and cfg.naming.tmm_staging else ""))
         r = cfg.review
         if r.replace_duplicates:
-            dup = "a download replaces the library video of the same episode or film (the newest wins)"
+            days = r.replaced_retention_days
+            dup = ("a download replaces the library video of the same episode or film (the newest wins); the old "
+                   "video is " + ("kept in review" if days < 0 else "deleted from review at the end of the run"
+                                  if days == 0 else f"kept in review {days} day(s)"))
         elif r.delete_duplicates:
             dup = "deleted when the library already has them; a bigger or repaired copy is kept in review"
         else:

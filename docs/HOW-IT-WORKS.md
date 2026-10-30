@@ -54,7 +54,7 @@ renames it ([TMM.md](TMM.md#library-on-an-smbcifs-share-staging-names)).
 | subtitles | follow their video (`X.en.srt` next to `X.mkv`; `Subs/English.srt` becomes `X.English.srt`; in packs also `Subs/X/2_English.srt`); next to the library copy when the download was an identical copy; along with a duplicate into review |
 | samples, trailers, `Extras/`, `Featurettes/` ..., bonus files named `Show.S01.Extras.01` / `.Bonus.02` | never filed; they leave Downloads with the other leftovers |
 | two downloads of the same episode or movie in one run | the first is filed; the other waits for the next run, then is compared with the library copy: identical -> deleted, otherwise -> `review/duplicates` |
-| an episode or movie the library already has | byte-identical -> the download is deleted; otherwise -> `review/duplicates`; with `review.delete_duplicates`, deleted too unless it is bigger, a REPACK/PROPER, a special edition, a part or of another year; with `review.replace_duplicates`, it replaces the library video ([USAGE.md](USAGE.md#the-review-folder)) |
+| an episode or movie the library already has | byte-identical -> the download is deleted; otherwise -> `review/duplicates`; with `review.delete_duplicates`, deleted too unless it is bigger, a REPACK/PROPER, a special edition, a part or of another year; with `review.replace_duplicates`, it replaces the library video, which is kept in `review/replaced` for a day ([USAGE.md](USAGE.md#the-review-folder)) |
 | an empty 0-byte library file of the episode or movie being filed | replaced by the download |
 | an empty folder (no file left in it) | removed once complete |
 
@@ -107,12 +107,10 @@ Enforced in code and covered by the test suite:
    - with `review.delete_duplicates`, a download of an episode or movie the library already has, not bigger
      than the library copy, not a REPACK/PROPER, not a special edition, not a part, of the same year (right
      before the deletion every library copy must still have the size and time seen then);
-   - with `review.replace_duplicates`, the library video a download of the same episode or movie replaces
-     (the new file is moved in first, or, when it takes the very same name, the old one goes first while the
-     download is still there; right before the deletion both must have the size and time seen then);
    - an empty (0-byte) library video of the episode or movie being filed (it must still be 0 bytes);
    - in review run folders after their retention (`--apply` runs only): the duplicates that run journaled
-     as certain, and release clutter ([USAGE.md](USAGE.md#the-review-folder)). Any other file is never
+     as certain, the library videos it replaced (`review/replaced`, `review.replace_duplicates`), and release
+     clutter ([USAGE.md](USAGE.md#the-review-folder)). Any other file is never
      deleted automatically. The cleaning works through folder handles opened without following links:
      a folder replaced by a link, or a run folder replaced since it was listed, is left alone;
    - files in tinyMediaManager's trash (`.deletedByTMM` at the root of each library) once mediaorg has seen

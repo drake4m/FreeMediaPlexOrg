@@ -36,7 +36,9 @@ upgrading.
 ### 2.2.x to 2.3.0
 
 Nothing to change: `review.replace_duplicates` ([USAGE.md](USAGE.md#the-review-folder)) is off until you set
-it. Before rolling back to 2.2.x, unset it (`sudo mediaorg config unset review.replace_duplicates`).
+it. Before rolling back to 2.2.x, unset the new settings you set (`sudo mediaorg config unset
+review.replace_duplicates review.replaced_retention_days`); 2.2.x leaves `review/replaced` alone (delete it
+by hand).
 
 ### 2.1.x to 2.2.0
 

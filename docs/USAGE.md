@@ -138,17 +138,23 @@ What "the same" means, so that you know what you give up:
 
 To have the newest download win instead, `sudo mediaorg config set review.replace_duplicates=true`: a download
 of an episode or film the library already has takes the place of the library video, whatever its size or
-release (`replace ... it replaces the library video (review.replace_duplicates)`, then `delete ... (library
-video, replaced by the download)`). The new video keeps its own name, so tMM's next update sees a new file and
-scrapes and renames it; the library's NFO, artwork and subtitles are left as they are. The download's other
-files (NFO, subtitles, samples) go to `leftovers`; with `review.leftovers_retention_days = 0` the release
-clutter among them is deleted at the end of the run. The new file is moved in before the old one is deleted
-(when it has the very same name, the old one goes first, while the download is still there); right before
-the deletion both must be unchanged. The same identity rules apply as above (same episode; same film of the
-same year; a country must match), and a download is not used as a replacement when it is one part of a split
-file, when the library has several files for that episode or film, or when the library file also holds other
-episodes: it is then handled as without the setting, and the report says why (`not replaced: ...`). Byte-
-identical copies are still deleted. A replaced library video cannot be restored by `undo`.
+release (`replace ... it replaces the library video (review.replace_duplicates)`). The new video keeps its own
+name, so tMM's next update sees a new file and scrapes and renames it; the library's NFO, artwork and
+subtitles are left as they are. The old video is moved to `review/replaced/<run-id>/` under its library path
+(`move ... (library video, replaced by the download)`) and deleted after `review.replaced_retention_days` (1 by
+default; 0 = at the end of the run): until then a wrong replacement is undone with `undo`, or by moving the
+file back. The download's other files (NFO, subtitles, samples) go to `leftovers`; with
+`review.leftovers_retention_days = 0` the release clutter among them is deleted at the end of the run.
+
+Nothing is deleted at that moment: the new file is moved in first, then the old one to review (when the new
+file takes the very name of the old one, the old one moves first). The same identity rules apply as above
+(same episode; same film of the same year; a country must match). A download named like bonus material
+(`Recap`, `Featurette`, `Preview`, `Behind the Scenes`, `Extras` ...) or smaller than a tenth of the library
+video never replaces it: it is kept in review for you (`not replaced: ...`). A download that cannot replace
+the library video for certain (one part of a split file, several library files for that episode or film, a
+library file holding other episodes too) is handled as without the setting, and the report says why.
+Byte-identical copies are still deleted. Episodes are matched by their show's title: an undated release of a
+remake can replace an episode of the older show of that title; the day in review is there for that.
 
 Example, a second copy and a REPACK of an episode that is already filed:
 

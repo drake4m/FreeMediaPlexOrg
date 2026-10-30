@@ -227,6 +227,10 @@ class Library:
     def plan_file(self, parent: str, name: str) -> None:
         self._planned_files.setdefault(parent, set()).add(name)
 
+    def planned_files(self, parent: str) -> set[str]:
+        """Names this run plans to put into `parent`."""
+        return set(self._planned_files.get(parent, set()))
+
     def plan_remove(self, path: str) -> None:
         self._removed.setdefault(os.path.dirname(path), set()).add(os.path.basename(path))
 

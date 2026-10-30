@@ -37,7 +37,7 @@ from .config import Config
 log = logging.getLogger(__name__)
 
 RUN_DIR = re.compile(r"^(\d{8}T\d{6}Z)-[0-9a-f]{4}$")
-KINDS = ("duplicates", "leftovers")
+KINDS = ("duplicates", "leftovers", "replaced")
 MIB = 1 << 20
 JUNK_MAX = 10 * MIB  # release clutter (.nfo, .txt, subtitles ...) is small
 IMAGE_MAX = 1 * MIB  # release artwork (poster, screenshots); photos are usually bigger
@@ -118,7 +118,7 @@ def extra_video(rel: str) -> bool:
 def disposable(kind: str, rel: str, size: int, cfg: Config, journaled: dict[str, int | None],
                full_path: str) -> bool:
     """May the review cleaning delete this file?  `rel` is relative to the review run folder."""
-    if kind == "duplicates":
+    if kind in ("duplicates", "replaced"):  # only what that run moved there as certain duplicates, or replaced
         return full_path in journaled and journaled[full_path] in (None, size)
     name = rel.rsplit("/", 1)[-1]
     ext = os.path.splitext(name)[1].lower()
@@ -131,10 +131,11 @@ def disposable(kind: str, rel: str, size: int, cfg: Config, journaled: dict[str,
     return False  # archives, programs, documents, files without extension: yours to decide
 
 
-def journaled_duplicates(journal_dir: str, run_id: str) -> dict[str, int | None]:
+def journaled_duplicates(journal_dir: str, run_id: str, roles=DUPLICATE_ROLES) -> dict[str, int | None]:
     """{destination path: size} of the files run `run_id` moved to review/duplicates as certain
     duplicates ("purge": true) ({} if its journal is missing or unreadable, or for runs of 1.0.0 and
-    of the first 1.0.1 builds, which did not record it: nothing is then deleted)."""
+    of the first 1.0.1 builds, which did not record it: nothing is then deleted); with roles=("replaced",),
+    the library videos it moved to review/replaced."""
     from .transfer import read_journal
 
     path = os.path.join(journal_dir, f"{run_id}.jsonl")
@@ -143,7 +144,7 @@ def journaled_duplicates(journal_dir: str, run_id: str) -> dict[str, int | None]
     except (OSError, ValueError):
         return {}
     return {r["dst"]: r.get("size") for r in ops.values()
-            if r.get("op") == "rename" and r.get("role") in DUPLICATE_ROLES and r.get("state") == "done"
+            if r.get("op") == "rename" and r.get("role") in roles and r.get("state") == "done"
             and r.get("purge") is True and isinstance(r.get("dst"), str)}
 
 
@@ -181,7 +182,8 @@ def due(cfg: Config, now: float | None = None) -> list[Due]:
     """Review run folders whose retention has expired, with what would be deleted and kept (read-only)."""
     now = time.time() if now is None else now
     journal_dir = os.path.join(cfg.paths.state_dir, "journal")
-    days_for = {"duplicates": cfg.review.duplicates_retention, "leftovers": cfg.review.leftovers_retention_days}
+    days_for = {"duplicates": cfg.review.duplicates_retention, "leftovers": cfg.review.leftovers_retention_days,
+                "replaced": cfg.review.replaced_retention_days}
     out: list[Due] = []
     for kind in KINDS:
         days = days_for[kind]
@@ -206,7 +208,8 @@ def due(cfg: Config, now: float | None = None) -> list[Due]:
             age = (now - t) / 86400
             if age < 0 or age < days:  # a run id in the future means a wrong clock: wait
                 continue
-            journaled = journaled_duplicates(journal_dir, name) if kind == "duplicates" else {}
+            journaled = (journaled_duplicates(journal_dir, name) if kind == "duplicates" else
+                         journaled_duplicates(journal_dir, name, ("replaced",)) if kind == "replaced" else {})
             delete, keep = _classify(path, kind, journaled, cfg)
             out.append(Due(path, kind, days, age, delete, keep, (st.st_dev, st.st_ino)))
     return out

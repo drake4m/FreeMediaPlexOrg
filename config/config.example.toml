@@ -196,15 +196,23 @@ method = "quiescence"
 # A download of an episode or film the library already has (the same episode; the same film of the
 # same year) takes the place of the library video, whatever its size or release: the newest
 # download wins. Only the video is replaced: the library's NFO, artwork and subtitles stay, and
-# tMM scrapes and renames the new video. The download's other files go to review/leftovers
-# (leftovers_retention_days = 0 deletes the release clutter at the end of the run). A duplicate
-# that cannot replace it (a release naming another country, one part of a split file, several
-# library files for it) is handled as without this setting.
+# tMM scrapes and renames the new video. The old video is moved to review/replaced
+# (replaced_retention_days). The download's other files go to review/leftovers
+# (leftovers_retention_days = 0 deletes the release clutter at the end of the run). A download
+# named like bonus material (recap, featurette, preview ...) or smaller than a tenth of the
+# library video is kept in review instead; one that cannot replace it for certain (a release
+# naming another country, one part of a split file, several library files for it) is handled as
+# without this setting.
 # replace_duplicates = false   (default)
 
 # Days after which the certain duplicates of a run are deleted from review/duplicates/ (0 = at the
 # end of the run, -1 = never). Other duplicates are kept. Not used with delete_duplicates = true.
 # duplicates_retention_days = 7   (default)
+
+# Days after which the library videos that downloads replaced (review.replace_duplicates) are
+# deleted from review/replaced/ (0 = at the end of the run, -1 = never). Until then a wrong
+# replacement can be undone.
+# replaced_retention_days = 1   (default)
 
 # Days after which release clutter (.nfo, .txt, small images and subtitles, small samples) is
 # deleted from review/leftovers/ (0 = at the end of the run, -1 = never). Other files are kept.
