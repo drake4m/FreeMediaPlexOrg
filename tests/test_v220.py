@@ -432,13 +432,15 @@ class TestFreeboxEdgeCases(FreeboxBase):
             code, out = self.run_([task(1, MOVIE, "seeding")], "--apply", files={1: files[1]})
             self.assertEqual(code, 0, out)
             self.assertIn("its Freebox task 2 is gone; it was last seen 'downloading' at 30.0 %", out)
-            self.assertIn(f"or delete the files it wrote: '{MOVIE}.en.srt'", out)
+            self.assertIn("or file it by hand", out)
         self.assertEqual(self.puts(), [])  # an item that waits: its other task is not stopped
         self.assertFalse(self.filed())
-        os.unlink(f"{self.nas.dl}/{MOVIE}/{MOVIE}.en.srt")  # you delete the partial file: the rest is filed
+        # a missing file is not proof that you deleted it (renamed, other Unicode form): still waits
+        os.unlink(f"{self.nas.dl}/{MOVIE}/{MOVIE}.en.srt")
         code, out = self.run_([task(1, MOVIE, "seeding")], "--apply", files={1: files[1]})
         self.assertEqual(code, 0, out)
-        self.assertTrue(self.filed(), out)
+        self.assertIn("its Freebox task 2 is gone", out)
+        self.assertFalse(self.filed())
 
     def test_files_a_removed_task_never_received_stay_blocked_beside_another_task(self):
         pack = "Two.Films.Pack.1080p.WEB.H264-GRP"
@@ -464,6 +466,60 @@ class TestFreeboxEdgeCases(FreeboxBase):
         self.assertTrue(os.path.exists(f"{self.nas.movies}/Rookfield (2026)/{good}"), out)
         self.assertFalse(glob.glob(f"{self.nas.movies}/Quarry Lights*"), out)
         self.assertTrue(os.path.exists(f"{self.nas.dl}/{pack}/{partial}"))
+
+    def test_a_file_another_task_receives_in_full_is_no_longer_blocked(self):
+        pack = "Two.Films.Pack.1080p.WEB.H264-GRP"
+        good, partial = "Rookfield.2026.1080p.WEB.H264-GRP.mkv", "Quarry.Lights.2026.1080p.WEB.H264-GRP.mkv"
+        touch(f"{self.nas.dl}/{pack}/{good}", b"movie")
+        touch(f"{self.nas.dl}/{pack}/{partial}", b"q")
+        age_tree(f"{self.nas.dl}/{pack}")
+
+        def f(name, size, rx, priority="normal"):
+            return {"filepath": b64(f"{REMOTE}{pack}/{name}"), "size": size, "rx": rx,
+                    "status": "done" if rx >= size else "queued", "priority": priority}
+
+        code, out = self.run_([task(1, pack, "seeding")], files={1: [f(good, 5, 5), f(partial, 9, 1, "no_dl")]})
+        self.assertEqual(code, 0, out)
+        # task 1 removed in Freebox OS; a new task downloads the deselected film alone into the folder
+        touch(f"{self.nas.dl}/{pack}/{partial}", b"quarrymov")
+        age_tree(f"{self.nas.dl}/{pack}")
+        code, out = self.run_([task(5, partial, "done")], "--apply", files={5: [f(partial, 9, 9)]})
+        self.assertEqual(code, 0, out)
+        self.assertTrue(glob.glob(f"{self.nas.movies}/Quarry Lights (2026)/{partial}"), out)
+
+    def test_task_linked_by_its_name_only_is_not_remembered_for_that_entry(self):
+        # a loose subtitle named like a magnet that is still fetching its metadata: the magnet is linked to it by
+        # name in that run, then writes the video; the subtitle must not wait for that task
+        sub, video = f"{MOVIE}.srt", f"{MOVIE}.mkv"
+        touch(f"{self.nas.dl}/{sub}", b"s")
+        other = "Gull.Harbour.2024.1080p.WEB.H264-GRP.mkv"  # another download: the run asks the Freebox
+        touch(f"{self.nas.dl}/{other}", b"g")
+        files = {2: [{"filepath": b64(f"{REMOTE}{other}"), "size": 1, "rx": 1, "status": "done",
+                      "priority": "normal"}]}
+        code, out = self.run_([task(1, MOVIE, "downloading", rx_pct=0), task(2, other, "downloading", rx_pct=100)],
+                              files=files)
+        self.assertEqual(code, 0, out)
+        self.assertIn(other.casefold(), self.seen())  # the Freebox was asked: entries were recorded
+        self.assertNotIn(sub.casefold(), self.seen())
+        touch(f"{self.nas.dl}/{video}", b"movie")
+        files[1] = [{"filepath": b64(f"{REMOTE}{video}"), "size": 5, "rx": 5, "status": "done", "priority": "normal"}]
+        code, out = self.run_([task(1, MOVIE, "seeding"), task(2, other, "downloading", rx_pct=100)], "--apply",
+                              files=files)
+        self.assertEqual(code, 0, out)
+        self.assertIn("Freebox task 1 was seeding: stopped", out)
+        self.assertTrue(os.path.exists(f"{self.nas.movies}/Rookfield (2026)/{video}"), out)
+
+    def test_a_reused_task_id_is_not_the_recorded_task(self):
+        files = self.movie_download()
+        code, out = self.run_([dict(task(1, MOVIE, "downloading", rx_pct=5000), created_ts=100)], files=files)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.seen()[MOVIE.casefold()]["tasks"]["1"]["created"], 100)
+        # task 1 removed; the Freebox later lists another download under id 1, elsewhere: not "still listed"
+        other = dict(task(1, "Other.Download", "downloading", rx_pct=100, ddir="/Freebox/Elsewhere/"), created_ts=900)
+        code, out = self.run_([other], "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn("its Freebox task 1 is gone; it was last seen 'downloading' at 50.0 %", out)
+        self.assertFalse(self.filed())
 
     def test_loose_subtitle_whose_task_was_removed_unfinished_holds_its_video(self):
         video, sub = f"{MOVIE}.mkv", f"{MOVIE}.en.srt"
@@ -707,6 +763,7 @@ class TestSeenTasks(unittest.TestCase):
         st._task_files = lambda t: (files or {}).get(t.id, [])
         st.to_local = lambda fp: "/dl/" + fp.split("/", 2)[-1]
         st.listed_task = lambda tid, info: None
+        st.file_tasks = lambda key: by_entry.get(key, [])
         return st
 
     @staticmethod
@@ -769,7 +826,8 @@ class TestSeenTasks(unittest.TestCase):
                     {"t": 1, "tasks": {}}, {"t": 1, "tasks": {"x": {"pct": 1, "status": "done"}}},
                     {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "files": "/dl/a"}}},
                     {"t": 1, "tasks": {"\u00b2": {"pct": 1, "status": "done"}}},  # a digit, not 0-9
-                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "created": "x"}}}):
+                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "created": "x"}}},
+                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "files": ["/dl/a\x00b"]}}}):
             with open(self.path, "w") as fh:
                 json.dump({"a": bad}, fh)
             self.assertIsNone(comp.SeenTasks(self.path).get("a"), bad)

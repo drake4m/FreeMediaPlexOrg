@@ -122,23 +122,6 @@ def _complete(info: dict) -> bool:
                                              and info.get("pct", 0) >= 10000)
 
 
-def _absent(path: str) -> bool:
-    """True only when `path` certainly does not exist (a storage that does not answer is not "absent")."""
-    try:
-        os.lstat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return True
-    except OSError:
-        return False
-    return False
-
-
-def _left(info: dict) -> list[str]:
-    """The recorded files of a task still on disk (all of them when its files are unknown: [''] then)."""
-    files = info.get("files") or []
-    return [p for p in files if not _absent(p)] if files else [""]
-
-
 def _covered(info: dict, files: set[str], names: set[str]) -> bool:
     """Is a recorded task replaced by the tasks now writing into its entry (the download added again in
     Freebox OS): do they write every file it wrote (or, its files unknown, carry its name)?"""
@@ -177,7 +160,7 @@ class SeenTasks:
             return False
 
         def paths(v) -> bool:
-            return isinstance(v, list) and all(isinstance(p, str) for p in v)
+            return isinstance(v, list) and all(isinstance(p, str) and "\x00" not in p for p in v)
 
         return all(isinstance(k, str) and k.isascii() and k.isdecimal() and isinstance(v, dict)
                    and isinstance(v.get("pct"), int) and isinstance(v.get("status"), str)
@@ -214,7 +197,7 @@ class SeenTasks:
             self.new = dict(self.old)
         now = int(time.time())
         for key in (state.present if state.present is not None else state.by_entry):
-            tasks = state._tasks_for(key, loose=True)
+            tasks = state.file_tasks(key)  # not a task linked by its name only (its files may go elsewhere)
             old = self.old.get(key)
             if tasks:
                 infos = {str(t.id): self.info(state, t) for t in tasks}
@@ -224,11 +207,16 @@ class SeenTasks:
                     for tid, info in old["tasks"].items():
                         if tid in infos or _covered(info, files, names):
                             continue
-                        lt = state.listed_task(tid, info)  # still listed: its state now
-                        infos[tid] = info if lt is None else {**info, "pct": int(lt.rx_pct), "status": lt.status}
+                        infos[tid] = self._refreshed(state, tid, info)
                 self.new[key] = {"t": now, "tasks": infos}
-            elif old:
-                self.new[key] = old
+            elif old:  # no task writes into it now: the record stays, with the state now of tasks still listed
+                self.new[key] = {**old, "tasks": {tid: self._refreshed(state, tid, info)
+                                                  for tid, info in old["tasks"].items()}}
+
+    @staticmethod
+    def _refreshed(state: FreeboxState, tid: str, info: dict) -> dict:
+        lt = state.listed_task(tid, info)
+        return info if lt is None else {**info, "pct": int(lt.rx_pct), "status": lt.status}
 
     def save(self) -> None:
         if not self.path or self.new == self.old:
@@ -263,6 +251,7 @@ class FreeboxState:
         self.remote_dir = _nfc(cfg.freebox.remote_downloads_dir.rstrip("/"))
         self.by_entry: dict[str, list[Task]] = {}
         self._by_name_only: dict[str, list[Task]] = {}  # tasks whose files map to no present entry
+        self._file_entries: dict[int, set[str]] = {}  # entries each task's files map to
         self._files: dict[int, list[TaskFile]] = {}
         if present is None:  # NFC + casefolded names of the entries now in Downloads
             try:
@@ -281,6 +270,7 @@ class FreeboxState:
                 fp = _nfc(f.filepath)
                 if fp.startswith(self.remote_dir + "/"):
                     entries.add(fp[len(self.remote_dir) + 1:].split("/")[0].casefold())
+            self._file_entries[t.id] = set(entries)
             if not (entries if present is None else entries & present):
                 rel = f"{ddir[len(self.remote_dir):].strip('/')}/{_nfc(t.name)}".strip("/")
                 if rel:
@@ -319,6 +309,10 @@ class FreeboxState:
         stem, ext = os.path.splitext(key)
         media = (*self.cfg.media.video_extensions, *self.cfg.media.subtitle_extensions)
         return self._by_name_only.get(stem, []) if stem and ext in media else []
+
+    def file_tasks(self, key: str) -> list[Task]:
+        """The tasks whose files map to the entry `key` (NFC, casefolded name)."""
+        return [t for t in self.by_entry.get(key, []) if key in self._file_entries.get(t.id, ())]
 
     def to_local(self, remote_path: str) -> str | None:
         rp = _nfc(remote_path)
@@ -361,8 +355,8 @@ class FreeboxState:
             if lt is not None and not _finished(lt) and not skip(tid, info):
                 return (f"Freebox task {tid} is still listed ('{lt.status}' at {lt.rx_pct / 100:.1f} %), but none of "
                         "its files could be matched to this entry in this run; the next run looks again")
-        for tid, info in tasks:  # a removed task whose files were all deleted since no longer counts
-            if self.listed_task(tid, info) is None and not _complete(info) and not skip(tid, info) and _left(info):
+        for tid, info in tasks:
+            if self.listed_task(tid, info) is None and not _complete(info) and not skip(tid, info):
                 return self._gone_reason(tid, info)
         return None
 
@@ -379,9 +373,11 @@ class FreeboxState:
             return int(tid) in matched or _covered(info, files, names)
 
         why = self._unfinished(seen, skip)
-        if why is None:
+        if why is None:  # what a removed task never fully received stays blocked, unless a task now has it in full
+            received = {os.path.normpath(local) for t in tasks for f in self._task_files(t)
+                        if f.priority != "no_dl" and f.rx >= f.size and (local := self.to_local(f.filepath))}
             blocked.update(p for tid, info in seen["tasks"].items() if not skip(tid, info)
-                           for p in info.get("blocked", []))
+                           for p in info.get("blocked", []) if p not in received)
         return why
 
     def _from_memory(self, name: str, newest_mtime: float, files: list, seen: dict, blocked: set[str]
@@ -411,12 +407,9 @@ class FreeboxState:
 
     @staticmethod
     def _gone_reason(tid: str, info: dict) -> str:
-        left = [os.path.basename(p) for p in _left(info) if p]
-        which = (": " + ", ".join(repr(n) for n in left[:3]) + (f" and {len(left) - 3} more" if len(left) > 3 else "")
-                 if left else "")
         return (f"its Freebox task {tid} is gone; it was last seen '{info['status']}' at {info['pct'] / 100:.1f} %, so "
                 "its files may be incomplete: add the download again in Freebox OS, into the same folder (it checks "
-                f"the files and completes them), or delete the files it wrote{which}")
+                "the files and completes them), or file it by hand")
 
     def assess(self, item: Item, now: float | None = None) -> Readiness:
         now = time.time() if now is None else now
