@@ -3,7 +3,7 @@
 ## Between 2.x releases
 
 ```bash
-VER=2.2.0     # the new version
+VER=2.3.0     # the new version
 cd /tmp
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
@@ -32,6 +32,11 @@ previous version can read the configuration, and refuses, changing nothing, when
 that version does not know back to their defaults with `sudo mediaorg config unset <key>` (the sections below
 name them), then run the rollback again. Read the [CHANGELOG](../CHANGELOG.md) for changes of behaviour before
 upgrading.
+
+### 2.2.x to 2.3.0
+
+Nothing to change: `review.replace_duplicates` ([USAGE.md](USAGE.md#the-review-folder)) is off until you set
+it. Before rolling back to 2.2.x, unset it (`sudo mediaorg config unset review.replace_duplicates`).
 
 ### 2.1.x to 2.2.0
 

@@ -23,12 +23,13 @@ from .identify import country_of, guess, identify_video, is_bonus, is_sample, is
 from .library import PLANNED, Library, compare_files, is_library_extra
 from .matching import LibFolder, Match, match_movie, match_series
 from .model import FileDecision, FileEntry, Item, ItemPlan, MediaId, Op, Readiness
-from .normalize import STAGING_TAG, UnsafeName, norm, safe_component, smart_title, unstaged
+from .normalize import STAGING_TAG, UnsafeName, norm, safe_component, same_name, smart_title, unstaged
 from .review import disposable, human, video_like
 from .scan import is_archive
 
 IDENTICAL = "byte-identical copy, deleted from Downloads"
 SAME = "not larger than the library copy: deleted from Downloads (review.delete_duplicates)"
+REPLACED = "it replaces the library video (review.replace_duplicates)"
 EXTRA_MAX_BYTES = 1 << 30  # a sample or trailer is never 1 GiB or more
 SAMPLE_RATIO = 0.10  # a sample/trailer name counts next to bigger videos only below 10 % of the largest
 OTHER_BYTES_MIN = 64 << 20  # non-video data that can outweigh a movie's video (software, disc image)
@@ -221,6 +222,52 @@ class Planner:
             return "it is larger than the library copy (a repaired or better copy?)"
         return ""
 
+    def _replace(self, renames: list[Op], plan: ItemPlan, f: FileEntry, m: MediaId, folder: LibFolder,
+                 refs: list[str], reason: str, note: str, ref_episodes: dict[str, set[int]] | None = None
+                 ) -> FileDecision | str:
+        """review.replace_duplicates: the download takes the place of the library video of the same episode or
+        film, whatever its size or release (the newest download wins); the other library files (NFO, artwork,
+        subtitles) stay.  The download keeps its own name, so tMM's next update sees a new video and scrapes
+        and renames it.  -> the decision (its operations added to `renames`), or why it cannot replace it."""
+        if m.part:
+            return "it is one part of a split file"
+        if m.country and country_of(unstaged(folder.name)) != m.country:
+            return f"the release names a country ({m.country}) that the folder {folder.name!r} does not"
+        if m.kind == "movie" and (m.year is None or folder.year is None or m.year != folder.year):
+            return "no year in the release name to confirm it is the same film"
+        if m.kind == "episode" and m.year is not None and m.year != folder.year:
+            return f"the release names {m.year}, the show folder " + ("no year" if folder.year is None
+                                                                        else str(folder.year))
+        if len(refs) != 1:
+            return f"the library has {len(refs)} files for it"
+        ref = refs[0]
+        st = self.lib.stat_of(ref)
+        if not st or st[0] <= 0:
+            return "the library copy could not be read"
+        extra = sorted((ref_episodes or {}).get(ref, set()) - set(m.episodes)) if m.kind == "episode" else []
+        if extra:
+            return "the library file also holds " + ", ".join(f"S{m.season:02d}E{e:02d}" for e in extra)
+        parent, old = os.path.split(ref)
+        in_place = same_name(old, f.dest_name)
+        if not in_place and self.lib.exists_name(parent, f.dest_name, ignore=(old,)):
+            return f"a file named {f.dest_name!r} already exists in {self._show(parent)!r}"
+        dst = os.path.join(parent, f.dest_name)
+        new = self._rename(f, dst, "media")
+        gone = Op("unlink", dst=ref, role="replaced", expect_size=st[0], expect_mtime=st[1], ref=dst)
+        if in_place:  # the same name: the old file goes first, and only while the download is still there
+            gone.ref_files = ((f.path, f.size, f.mtime),)
+            renames.extend([gone, new])
+        else:  # the new file first: the library always holds a copy
+            gone.ref_files = ((dst, f.size, f.mtime),)
+            renames.extend([new, gone])
+        self.lib.plan_remove(ref)
+        self.lib.plan_file(parent, f.dest_name)
+        if m.kind == "episode":
+            self.lib.plan_episodes(folder.path, m.season, m.episodes)
+        plan.tmm_paths.setdefault("tvshow" if m.kind == "episode" else "movie", set()).add(folder.path)
+        return FileDecision(f, "replace", f"{reason}; {REPLACED}", m, target=dst, refs=[ref],
+                            notes=[note, f"replaces {self._show(ref)!r}, which is deleted"])
+
     def _by_size(self, refs: list[str]) -> list[str] | None:
         """All library files of `refs`, biggest first, or None when one of them cannot be read or is empty."""
         stats = [(r, self.lib.stat_of(r)) for r in refs]
@@ -305,8 +352,19 @@ class Planner:
             if same:
                 return FileDecision(f, "delete", f"already in library: {what}; {IDENTICAL}", m, notes=[note],
                                     refs=[same])
-            return self._duplicate(f, m, f"already in library: {what}{extra}", note, refs, match.folder,
-                                   plan.item.name)
+            not_replaced = ""
+            if self.cfg.review.replace_duplicates:
+                held = {p: {e for e, ps in paths.items() if p in ps} for p in refs}
+                r = self._replace(renames, plan, f, m, match.folder, refs, f"already in library: {what}{extra}",
+                                  note, held)
+                if isinstance(r, FileDecision):
+                    return r
+                not_replaced = f"not replaced: {r}"
+            d = self._duplicate(f, m, f"already in library: {what}{extra}", note, refs, match.folder,
+                                plan.item.name)
+            if not_replaced:
+                d.notes.append(not_replaced)
+            return d
         empties = self.lib.episode_paths(show, m.season, listed_season, empty=True)
         placeholders = sorted({p for e in m.episodes for p in empties.get(e, [])})
         ignore = tuple(os.path.basename(p) for p in placeholders if os.path.dirname(p) == season_dir)
@@ -366,8 +424,18 @@ class Planner:
                 if m.year is None:  # a title alone does not prove it is the same film (remakes)
                     return FileDecision(f, "skip", f"movie folder {match.folder.name!r} already has {videos[0]!r} "
                                                    f"and the name has no year to tell whether it is the same film", m)
-                return self._duplicate(f, m, f"movie folder already has {videos[0]!r}{extra}", note, refs,
-                                       match.folder, plan.item.name)
+                not_replaced = ""
+                if self.cfg.review.replace_duplicates:
+                    r = self._replace(renames, plan, f, m, match.folder, refs,
+                                      f"movie folder already has {videos[0]!r}{extra}", note)
+                    if isinstance(r, FileDecision):
+                        return r
+                    not_replaced = f"not replaced: {r}"
+                d = self._duplicate(f, m, f"movie folder already has {videos[0]!r}{extra}", note, refs,
+                                    match.folder, plan.item.name)
+                if not_replaced:
+                    d.notes.append(not_replaced)
+                return d
             extras = [v for v in self.lib.movie_videos(folder, include_extras=True) if is_library_extra(v)]
             if extras:
                 movie_notes.append(f"movie folder had only {extras[0]!r} (sample/trailer, not counted)")
@@ -628,7 +696,7 @@ class Planner:
                 d.action, d.reason = "skip", f"{d.reason}; another duplicate of this run has the same review name"
                 continue
             d.target = dst
-        moves = [d for d in decisions if d.action == "move"]
+        moves = [d for d in decisions if d.action in ("move", "replace")]
         dups = [d for d in decisions if d.action == "duplicate"]
         dels = [d for d in decisions if d.action == "delete"]
         skips = [d for d in decisions if d.action == "skip"]

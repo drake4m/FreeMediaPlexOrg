@@ -124,6 +124,11 @@ class Review:
     # even when its bytes differ; other duplicates still go to review/duplicates and are kept there.
     # Certain duplicates that earlier runs moved to review are then deleted by the next run.
     delete_duplicates: bool = False
+    # A download of an episode or film the library already has (same episode; same film and year) takes the
+    # place of the library video, whatever its size or release: the newest download wins.  Only the video is
+    # replaced (NFO, artwork, subtitles stay); a duplicate that cannot replace it (other country, split
+    # part, several library files ...) is handled as without this setting.
+    replace_duplicates: bool = False
     # review/duplicates/<run-id>/ and review/leftovers/<run-id>/ are deleted this many days after
     # that run; 0 = at the end of the same run; -1 = never (delete them by hand).
     duplicates_retention_days: int = 7

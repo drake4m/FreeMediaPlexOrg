@@ -87,6 +87,9 @@ class Op:
     # identical-duplicate (unlink of a download byte-identical to `ref`)
     # | same-duplicate (unlink of a download of the media `ref` holds, review.delete_duplicates)
     # | empty-placeholder (unlink of a 0-byte library file)
+    # | replaced (unlink of the library video a download replaces, review.replace_duplicates: `ref` is the
+    #   new file, `ref_files` the file that must be in place, unchanged, right before: the new library file,
+    #   or the download itself when the old file goes first because the new one takes its name)
     role: str = ""
     expect_size: int | None = None
     expect_mtime: float | None = None
@@ -104,7 +107,7 @@ class Op:
 @dataclass
 class FileDecision:
     file: FileEntry
-    action: str  # move | duplicate | delete (byte-identical duplicate, or `same`) | skip
+    action: str  # move | replace (review.replace_duplicates) | duplicate | delete (byte-identical, or `same`) | skip
     reason: str
     media: MediaId | None = None
     target: str | None = None

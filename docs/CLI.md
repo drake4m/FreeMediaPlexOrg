@@ -23,7 +23,7 @@ Conventions:
 ```text
 usage: mediaorg [-h] [--version] [-c FILE] [-v] COMMAND ...
 
-mediaorg 2.2.0 - files finished movie and TV downloads into a tidy library, safely.
+mediaorg 2.3.0 - files finished movie and TV downloads into a tidy library, safely.
 
 It watches one Downloads folder. Each finished download is identified (title, year, season,
 episode) and moved by an instant rename into

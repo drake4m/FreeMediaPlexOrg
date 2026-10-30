@@ -72,7 +72,7 @@ has the rules.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| a download disappeared from Downloads but nothing new is in the library | it was byte-identical to a library file and deleted, or, with `review.delete_duplicates`, a copy of an episode or movie the library has (`delete` in its run's report) | nothing to fix: the library has that episode or movie. `sudo grep -rlE 'identical-duplicate\|same-duplicate' /var/lib/mediaorg/journal` lists the runs that did it; `review.delete_duplicates = false` (and `delete_identical_duplicates = false`) keep such copies in review instead |
+| a download disappeared from Downloads but nothing new is in the library | it was byte-identical to a library file and deleted, or, with `review.delete_duplicates`, a copy of an episode or movie the library has (`delete` in its run's report) | nothing to fix: the library has that episode or movie. `sudo grep -rlE 'identical-duplicate\|same-duplicate\|replaced' /var/lib/mediaorg/journal` lists the runs that did it; `review.delete_duplicates = false` (and `delete_identical_duplicates = false`) keep such copies in review instead |
 | a review folder is gone | cleaned after its retention | `review.*_retention_days` (-1 = never); to keep files, move them out of the `<run-id>` folder |
 | a review folder stays, listed as `[KEPT]` | it holds files that are never deleted automatically (videos, uncertain duplicates, archives, documents, photos) | look at them, keep what you want, delete the folder |
 | a duplicate stays in review after the retention | it was not certain; its line in the run's report says why (no year, REPACK/PROPER, part of a split file, bigger than the library copy) | compare it with the library copy, keep the better one |

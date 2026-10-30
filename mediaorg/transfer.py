@@ -19,6 +19,11 @@ Deletions (`unlink` ops, planned explicitly and journaled like moves) are limite
   * identical-duplicate: a download whose bytes equal library file `ref` (compared during
     planning); right before the unlink both files must still have the size and mtime seen
     then, otherwise the item is not touched;
+  * same-duplicate:      a download of the media library files `ref_files` hold
+    (review.delete_duplicates); every one of them must still be unchanged;
+  * replaced:            the library video a download replaces (review.replace_duplicates); it must
+    be unchanged, and the replacement in place (or, when the old file goes first because the new
+    one takes its name, still in Downloads), unchanged;
   * empty-placeholder:   a 0-byte library file of the episode/movie being filed; it must
     still be 0 bytes.  `undo` re-creates it (empty, same mtime).
 Besides these, only our own empty reservation placeholder is ever deleted, and `rmdir` only
@@ -353,6 +358,15 @@ def _verify_unlink(op: Op) -> str | None:
             problem = _same_file_state(path, size, mtime)
             if problem:
                 return f"library copy {path} {problem} since the scan"
+    elif op.role == "replaced":
+        if not op.ref_files:
+            return "no replacement recorded for a replaced library file"
+        for path, size, mtime in op.ref_files:  # the replacement is in place (or still in Downloads), intact
+            if not size or mtime is None:
+                return f"no size or time recorded for the replacement {path}"
+            problem = _same_file_state(path, size, mtime)
+            if problem:
+                return f"the replacement {path} {problem}"
     elif op.role != "empty-placeholder" or op.expect_size != 0:
         return f"refusing an unplanned kind of deletion ({op.role})"
     return None
@@ -632,6 +646,8 @@ def undo_plan(journal_path: str) -> tuple[list[Op], list[str]]:
             inverse.append(Op("mkdir", dst=rec["dst"], role="undo"))
         elif rec["op"] == "unlink" and rec.get("role") == "empty-placeholder":
             inverse.append(Op("create", dst=rec["dst"], role="undo", expect_size=0, expect_mtime=rec.get("mtime")))
+        elif rec["op"] == "unlink" and rec.get("role") == "replaced":
+            notes.append(f"not restored: {rec['dst']} was replaced by {rec.get('ref')} (review.replace_duplicates)")
         elif rec["op"] == "unlink" and rec.get("role") == "same-duplicate":
             notes.append(f"not restored: {rec['dst']} was deleted as a duplicate of {rec.get('ref')} "
                          "(review.delete_duplicates)")

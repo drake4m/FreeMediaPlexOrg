@@ -1209,7 +1209,9 @@ def cmd_status(args) -> int:
               + ("; new folders end with ' [mediaorg]' until tMM renames them"
                  if cfg.tmm.enabled and cfg.naming.tmm_staging else ""))
         r = cfg.review
-        if r.delete_duplicates:
+        if r.replace_duplicates:
+            dup = "a download replaces the library video of the same episode or film (the newest wins)"
+        elif r.delete_duplicates:
             dup = "deleted when the library already has them; a bigger or repaired copy is kept in review"
         else:
             days = r.duplicates_retention_days

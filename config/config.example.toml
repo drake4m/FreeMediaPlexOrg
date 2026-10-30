@@ -193,6 +193,15 @@ method = "quiescence"
 # (duplicates_retention_days).
 # delete_duplicates = false   (default)
 
+# A download of an episode or film the library already has (the same episode; the same film of the
+# same year) takes the place of the library video, whatever its size or release: the newest
+# download wins. Only the video is replaced: the library's NFO, artwork and subtitles stay, and
+# tMM scrapes and renames the new video. The download's other files go to review/leftovers
+# (leftovers_retention_days = 0 deletes the release clutter at the end of the run). A duplicate
+# that cannot replace it (a release naming another country, one part of a split file, several
+# library files for it) is handled as without this setting.
+# replace_duplicates = false   (default)
+
 # Days after which the certain duplicates of a run are deleted from review/duplicates/ (0 = at the
 # end of the run, -1 = never). Other duplicates are kept. Not used with delete_duplicates = true.
 # duplicates_retention_days = 7   (default)

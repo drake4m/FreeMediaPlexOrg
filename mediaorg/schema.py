@@ -158,6 +158,13 @@ KEYS: list[Key] = [
         "kept until you decide; certain duplicates that earlier runs moved there are deleted by the next run. "
         "Needs delete_identical_duplicates = true. "
         "false = duplicates go to review/duplicates (duplicates_retention_days)."),
+    Key("review", "replace_duplicates", "bool", "A download of an episode or film the library already has (the "
+        "same episode; the same film of the same year) takes the place of the library video, whatever its size "
+        "or release: the newest download wins. Only the video is replaced: the library's NFO, artwork and "
+        "subtitles stay, and tMM scrapes and renames the new video. The download's other files go to "
+        "review/leftovers (leftovers_retention_days = 0 deletes the release clutter at the end of the run). A "
+        "duplicate that cannot replace it (a release naming another country, one part of a split file, several "
+        "library files for it) is handled as without this setting."),
     Key("review", "duplicates_retention_days", "int", "Days after which the certain duplicates of a run are "
         "deleted from review/duplicates/ (0 = at the end of the run, -1 = never). Other duplicates are kept. "
         "Not used with delete_duplicates = true."),

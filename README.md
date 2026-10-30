@@ -55,7 +55,7 @@ SMB share where tMM alone cannot change only the letter case of a folder name.
 
 ```bash
 sudo apt install python3 python3-venv curl
-VER=2.2.0
+VER=2.3.0
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz
 curl -fLO https://github.com/drake4m/FreeMediaPlexOrg/releases/download/v$VER/freemediaplexorg-$VER.tar.gz.sha256
 sha256sum -c freemediaplexorg-$VER.tar.gz.sha256 && tar -xzf freemediaplexorg-$VER.tar.gz
