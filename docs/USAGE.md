@@ -126,7 +126,10 @@ What "the same" means, so that you know what you give up:
 
 - An episode is matched by its show's title: its show folder is the one folder of that title, so a release
   without a year is deleted. A release that names a year is kept unless the show folder has that same year
-  (an undated folder may hold another show of that title).
+  (an undated folder may hold another show of that title); likewise a release naming a country
+  (`The.Office.US...`, `...UK...`) unless the folder names it (`The Office (US) (2005)`).
+- REPACK/PROPER and editions count wherever they are named: in the file name or in any folder of the
+  download.
 - A film needs the year in the release name, equal to the movie folder's.
 - Languages and qualities are not compared: a smaller French copy of a film you have in English is deleted.
   A copy with more audio tracks (`MULTi`) is usually bigger, and then kept.

@@ -15,8 +15,10 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
 - `review.delete_duplicates = true`: a download the library already has is deleted in the run that finds it,
   even when its bytes differ: the same episode, or the same film of the same year, not a REPACK/PROPER, not a
   special edition (Extended, Director's Cut...), not one part of a split file, and not larger than the
-  library copy. An episode needs no year in its name (its show folder is the one folder of that title); a
-  release naming a year is kept unless the show folder has that year. Languages are not compared. Right
+  library copy; REPACK/PROPER and editions count in the file name and in any folder of the download. An
+  episode needs no year in its name (its show folder is the one folder of that title); a release naming a
+  year, or a country (`The.Office.US`), is kept unless the show folder names it too. Languages are not
+  compared. Right
   before the deletion every library file of that episode or film must still be there, unchanged. The
   subtitles of such a download are not put next to the library copy (they may not match it): they go to
   `review/leftovers` with the rest. Other duplicates (a bigger or repaired copy, a year that cannot be
@@ -27,10 +29,13 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
   filed when the task had received everything when a run last saw it, even with
   `completeness.untracked = "wait"`, and never when it had not, or was in error or being verified (its files
   may be incomplete), even with `untracked = "quiescence"`, until the download is added again in Freebox OS
-  and its new task finishes. The same holds for one of several tasks writing into a folder. Files a task
-  never fully received (deselected ones) stay in Downloads. What the Freebox last said about the tasks of
-  each entry of Downloads is kept in `<state_dir>/freebox_seen.json`, and forgotten when the entry leaves
-  Downloads; a record older than the entry's files does not decide.
+  and its new task finishes. The same holds for one of several tasks writing into a folder, and for a
+  subtitle downloaded by a task of its own next to its video. Files a removed task never fully received
+  (deselected ones) stay in Downloads, also while other tasks write into the same folder. A task the Freebox
+  still lists, but whose files are not matched to its download in a run, makes the download wait unless
+  the task is finished. What the Freebox last said about the tasks of each entry of Downloads is kept in
+  `<state_dir>/freebox_seen.json`, and forgotten when the entry leaves Downloads; a record older than the
+  entry's files does not decide.
 
 ### Fixed
 
@@ -40,8 +45,13 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
   download filed by the next run.
 - `completeness.on_seeding = "stop"`: a task the Freebox says it cannot find while still listing it is
   reported as not stopped (it keeps seeding), not as removed; when one task of a download reaches its ratio
-  during the stop, the download's other tasks are checked again before going on; a `done` task counts as
-  finished at any percentage, as it does for filing.
+  during the stop, the download's other tasks are checked again before going on (not those the run has
+  just stopped); a `done` task counts as finished at any percentage, as it does for filing.
+- A REPACK/PROPER or a special edition named only by the folder of a download (or only by its file, when the
+  folder gave the identity) no longer counts as a certain duplicate: it is kept in review. This also
+  applies without `review.delete_duplicates` (certain duplicates are deleted from review after
+  `duplicates_retention_days`).
+- A Freebox task listed with an empty name or status no longer stops the run.
 - A download deleted from Downloads during a run (for example removed in Freebox OS with its files) is
   skipped with a warning instead of failing the run (exit 1); no library folder is created for it. When the
   Downloads folder itself disappears (share unmounted), the run stops with exit 3 as for any storage failure.

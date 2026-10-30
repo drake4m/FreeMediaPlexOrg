@@ -61,7 +61,7 @@ reason for every entry of Downloads. Exit codes: [USAGE.md](USAGE.md#exit-codes)
 | exit 5 | the journal of an interrupted run contradicts the disk | look at the two paths named, fix by hand, then `sudo mediaorg recover` |
 | exit 4 | another run holds the lock | nothing; wait for it |
 | `WAIT ... its Freebox task N is gone; it was last seen '...' at X %, so its files may be incomplete` | the task was removed in Freebox OS before it finished (or while in error, or being verified) | add the download again in Freebox OS, into the same folder: it checks the files and finishes, and the download is filed once it is done. Or delete the files |
-| `WAIT ... Freebox task N (last seen ...) is still listed, but none of its files could be matched to this entry` | the task now downloads elsewhere, or its file list was not available in this run | the next run looks again; if it lasts, check the task's folder in Freebox OS |
+| `WAIT ... Freebox task N is still listed ('...' at X %), but none of its files could be matched to this entry` | a task that wrote into this download, not finished, now downloads elsewhere, or its file list was not available in this run | the next run looks again; if it lasts, check the task in Freebox OS (finish, stop or remove it) |
 | `ERROR ... is gone (the share is no longer mounted?)`, exit 3, during a run | the Downloads folder itself disappeared while the run was moving files (share unmounted, NAS down) | nothing to do: the next run checks the mount and reconciles the journal before anything else |
 | `WARNING ...: gone from Downloads since the scan (deleted?): nothing done` | the download was deleted while the run was planning | nothing |
 

@@ -170,10 +170,10 @@ class FreeboxClient:
         out = []
         try:
             for t in res:
-                out.append(Task(
-                    id=int(t["id"]), name=t.get("name", ""), status=t.get("status", "unknown"),
-                    rx_pct=int(t.get("rx_pct", 0)), size=int(t.get("size", 0)),
-                    download_dir=_b64(t.get("download_dir")), type=t.get("type", ""),
+                out.append(Task(  # a null field reads as empty (not as a task "None")
+                    id=int(t["id"]), name=str(t.get("name") or ""), status=str(t.get("status") or "unknown"),
+                    rx_pct=int(t.get("rx_pct") or 0), size=int(t.get("size") or 0),
+                    download_dir=_b64(t.get("download_dir")), type=str(t.get("type") or ""),
                     stop_ratio=t.get("stop_ratio"), error=t.get("error"),
                     created_ts=t.get("created_ts") if isinstance(t.get("created_ts"), int) else None,
                 ))

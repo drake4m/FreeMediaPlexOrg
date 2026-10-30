@@ -19,11 +19,11 @@ import os
 import unicodedata
 
 from .config import Config
-from .identify import guess, identify_video, is_bonus, is_sample, is_weak_movie
+from .identify import country_of, guess, identify_video, is_bonus, is_sample, is_weak_movie, release_markers
 from .library import PLANNED, Library, compare_files, is_library_extra
-from .matching import Match, match_movie, match_series
+from .matching import LibFolder, Match, match_movie, match_series
 from .model import FileDecision, FileEntry, Item, ItemPlan, MediaId, Op, Readiness
-from .normalize import STAGING_TAG, UnsafeName, norm, safe_component, smart_title
+from .normalize import STAGING_TAG, UnsafeName, norm, safe_component, smart_title, unstaged
 from .review import disposable, human, video_like
 from .scan import is_archive
 
@@ -186,20 +186,26 @@ class Planner:
         return Op("unlink", dst=d.file.path, role="identical-duplicate", expect_size=d.file.size,
                   expect_mtime=d.file.mtime, ref=ref, ref_mtime=st[1] if st else None)
 
-    def _certain(self, f: FileEntry, m: MediaId, folder_year: int | None, refs: list[str]) -> str:
+    def _certain(self, f: FileEntry, m: MediaId, folder: LibFolder, refs: list[str], item_name: str) -> str:
         """'' when a duplicate is certain enough to be deleted (after the review retention, or at once with
         review.delete_duplicates), else why it is kept for the user to decide: the release and the library
         folder must agree on the year (a title alone also fits a remake or another country's show; with
         delete_duplicates an episode needs only no conflicting year, its show folder being the one folder
-        of that title), the download must not be a REPACK/PROPER or one part of a split file, and it must not
-        be larger than the library copy (a repaired or better download)."""
+        of that title), and on the country a release names; the download must not be a REPACK/PROPER, a
+        special edition (named by the file or by any folder above it) or one part of a split file, and it must
+        not be larger than the library copy (a repaired or better download)."""
         what = "show" if m.kind == "episode" else "film"
-        if m.proper:
+        folder_year = folder.year
+        proper, edition = release_markers((item_name, *f.rel.split("/")))
+        if m.proper or proper:
             return "it is a REPACK/PROPER release"
         if m.part:
             return "it is one part of a split file"
-        if m.edition:
-            return f"it is a special edition ({m.edition})"
+        edition = m.edition or edition
+        if edition:
+            return f"it is a special edition ({edition})"
+        if m.country and country_of(unstaged(folder.name)) != m.country:
+            return f"the release names a country ({m.country}) that the folder {folder.name!r} does not"
         if m.kind == "episode" and self.cfg.review.delete_duplicates:
             # the show folder is the one folder of that title; a year in the release must be that folder's
             # own (an undated folder may hold another show of the same title)
@@ -223,8 +229,8 @@ class Planner:
         return [r for r, _ in sorted(stats, key=lambda x: (-x[1][0], x[0]))]
 
     def _duplicate(self, f: FileEntry, m: MediaId, reason: str, note: str, refs: list[str],
-                   folder_year: int | None) -> FileDecision:
-        keep = self._certain(f, m, folder_year, refs)
+                   folder: LibFolder, item_name: str) -> FileDecision:
+        keep = self._certain(f, m, folder, refs, item_name)
         if not keep and self.cfg.review.delete_duplicates:
             ordered = self._by_size(refs)
             if ordered:
@@ -299,7 +305,8 @@ class Planner:
             if same:
                 return FileDecision(f, "delete", f"already in library: {what}; {IDENTICAL}", m, notes=[note],
                                     refs=[same])
-            return self._duplicate(f, m, f"already in library: {what}{extra}", note, refs, match.folder.year)
+            return self._duplicate(f, m, f"already in library: {what}{extra}", note, refs, match.folder,
+                                   plan.item.name)
         empties = self.lib.episode_paths(show, m.season, listed_season, empty=True)
         placeholders = sorted({p for e in m.episodes for p in empties.get(e, [])})
         ignore = tuple(os.path.basename(p) for p in placeholders if os.path.dirname(p) == season_dir)
@@ -360,7 +367,7 @@ class Planner:
                     return FileDecision(f, "skip", f"movie folder {match.folder.name!r} already has {videos[0]!r} "
                                                    f"and the name has no year to tell whether it is the same film", m)
                 return self._duplicate(f, m, f"movie folder already has {videos[0]!r}{extra}", note, refs,
-                                       match.folder.year)
+                                       match.folder, plan.item.name)
             extras = [v for v in self.lib.movie_videos(folder, include_extras=True) if is_library_extra(v)]
             if extras:
                 movie_notes.append(f"movie folder had only {extras[0]!r} (sample/trailer, not counted)")

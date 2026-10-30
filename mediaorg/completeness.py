@@ -11,6 +11,8 @@ them in Downloads (and download them again).  Hence:
   * an item whose task is gone from the Freebox (removed in Freebox OS, its files kept): what the
     Freebox last said about it decides (SeenTasks): ready if the task had received everything, never
     filed if it had not (the files are incomplete), until a task writing all of its files is added again.
+    A recorded task the Freebox still lists, but whose files were not matched to the item in this run,
+    makes the item wait unless it is finished.
   * items the Freebox never listed (copied manually) and method "quiescence":
     nothing modified for min_quiet_minutes and no temporary download extensions.
 """
@@ -132,10 +134,11 @@ class SeenTasks:
     """What the Freebox last said about the tasks of each Downloads entry (<state_dir>/freebox_seen.json),
     for entries whose task disappears from the Freebox (removed in Freebox OS, the files kept):
     {entry key (NFC, casefolded name): {"t": epoch of that run, "tasks": {"<id>": {"pct": 0..10000,
-    "status": str, "name": str, "files": [local paths it writes], "blocked": [those it did not fully receive,
-    e.g. deselected ones]}}}}.
-    A task that vanished before it was complete stays recorded, and keeps the entry from being filed, until
-    tasks writing all of its files are listed again.  Entries gone from Downloads are forgotten."""
+    "status": str, "name": str, "created": epoch, "files": [local paths it writes], "blocked": [those it did
+    not fully receive, e.g. deselected ones]}}}}.
+    A task that no longer writes into its entry (removed in Freebox OS, or not matched in a run) stays
+    recorded, with the files it never fully received, until tasks writing all of its files are listed again
+    (the download added again).  Entries gone from Downloads are forgotten."""
 
     def __init__(self, path: str | None):
         self.path = path
@@ -159,8 +162,9 @@ class SeenTasks:
         def paths(v) -> bool:
             return isinstance(v, list) and all(isinstance(p, str) for p in v)
 
-        return all(isinstance(k, str) and k.isdigit() and isinstance(v, dict) and isinstance(v.get("pct"), int)
-                   and isinstance(v.get("status"), str) and isinstance(v.get("name", ""), str)
+        return all(isinstance(k, str) and k.isascii() and k.isdecimal() and isinstance(v, dict)
+                   and isinstance(v.get("pct"), int) and isinstance(v.get("status"), str)
+                   and isinstance(v.get("name", ""), str) and isinstance(v.get("created", 0), int)
                    and paths(v.get("files", [])) and paths(v.get("blocked", []))
                    for k, v in rec["tasks"].items())
 
@@ -175,6 +179,8 @@ class SeenTasks:
                 if f.priority == "no_dl" or f.rx < f.size:
                     blocked.add(os.path.normpath(local))
         rec = {"pct": int(t.rx_pct), "status": t.status, "name": _nfc(t.name)}
+        if isinstance(t.created_ts, int):
+            rec["created"] = t.created_ts
         if files:
             rec["files"] = sorted(files)
         if blocked:
@@ -195,12 +201,14 @@ class SeenTasks:
             old = self.old.get(key)
             if tasks:
                 infos = {str(t.id): self.info(state, t) for t in tasks}
-                if old:  # a task that vanished before it was complete keeps the entry from being filed
+                if old:  # recorded tasks no longer writing into the entry are kept unless replaced
                     files = {p for i in infos.values() for p in i.get("files", [])}
                     names = {_nfc(t.name).casefold() for t in tasks}
                     for tid, info in old["tasks"].items():
-                        if tid not in infos and not _complete(info) and not _covered(info, files, names):
-                            infos[tid] = info
+                        if tid in infos or _covered(info, files, names):
+                            continue
+                        lt = state.listed_task(tid, info)  # still listed: its state now
+                        infos[tid] = info if lt is None else {**info, "pct": int(lt.rx_pct), "status": lt.status}
                 self.new[key] = {"t": now, "tasks": infos}
             elif old:
                 self.new[key] = old
@@ -246,7 +254,7 @@ class FreeboxState:
                 present = None  # unknown: every entry named by a task's files counts as present
         self.present = present
         tasks = client.tasks()
-        self.listed_ids = {t.id for t in tasks}  # every task the Freebox lists now, wherever it downloads
+        self.listed = {t.id: t for t in tasks}  # every task the Freebox lists now, wherever it downloads
         for t in tasks:
             ddir = _nfc(t.download_dir.rstrip("/"))
             if ddir != self.remote_dir and not ddir.startswith(self.remote_dir + "/"):
@@ -318,39 +326,71 @@ class FreeboxState:
                         blocked.add(os.path.normpath(local))
         return None
 
-    @staticmethod
-    def _gone(seen: dict, present_ids: set[int]) -> list[tuple[str, dict]]:
-        """Recorded tasks of an entry that are no longer among `present_ids` and were not complete."""
-        return sorted((tid, info) for tid, info in seen["tasks"].items()
-                      if int(tid) not in present_ids and not _complete(info))
+    def listed_task(self, tid: str, info: dict) -> Task | None:
+        """The task the Freebox still lists as recorded task `tid` (same creation time, when known), or None."""
+        t = self.listed.get(int(tid))
+        if t is None or (isinstance(info.get("created"), int) and isinstance(t.created_ts, int)
+                         and t.created_ts != info["created"]):
+            return None
+        return t
 
-    def _from_memory(self, item: Item, seen: dict, blocked: set[str]) -> Readiness | str | None:
-        """An entry no task matched in this run, judged by what the Freebox last said about its tasks:
-        a Readiness that is not ready, the reason it is ready, or None when the record does not apply."""
-        listed = sorted(int(tid) for tid in seen["tasks"] if int(tid) in self.listed_ids)
-        if listed:  # still there: only its files could not be matched in this run
-            return Readiness(False, f"Freebox task {listed[0]} is still listed, but none of its files could be "
-                                    f"matched to {item.name!r} in this run; the next run looks again")
-        gone = self._gone(seen, set())
-        if gone:  # never filed: written up to its removal, then left incomplete
-            return Readiness(False, self._gone_reason(*gone[0]))
-        if item.newest_mtime > seen["t"] + SEEN_SKEW_SECONDS:
+    def _unfinished(self, seen: dict, skip=lambda tid, info: False) -> str | None:
+        """Why an entry waits for a recorded task that is not matched in this run (`skip` leaves some out):
+        one the Freebox still lists and that is not finished (it may still write or seed), or one that is
+        gone and had not received everything.  None if there is none."""
+        tasks = sorted(seen["tasks"].items(), key=lambda x: int(x[0]))
+        for tid, info in tasks:
+            lt = self.listed_task(tid, info)
+            if lt is not None and not _finished(lt) and not skip(tid, info):
+                return (f"Freebox task {tid} is still listed ('{lt.status}' at {lt.rx_pct / 100:.1f} %), but none of "
+                        "its files could be matched to this entry in this run; the next run looks again")
+        for tid, info in tasks:
+            if self.listed_task(tid, info) is None and not _complete(info) and not skip(tid, info):
+                return self._gone_reason(tid, info)
+        return None
+
+    def _others(self, seen: dict, tasks: list[Task], blocked: set[str]) -> str | None:
+        """An entry some tasks matched in this run: its recorded tasks that none matched (removed, or not
+        matched this time) and that were not replaced by the download added again.  -> why it waits, or None
+        (then the files those tasks never fully received are added to `blocked`)."""
+        matched = {t.id for t in tasks}
+        files = {os.path.normpath(local) for t in tasks for f in self._task_files(t)
+                 if (local := self.to_local(f.filepath))}
+        names = {_nfc(t.name).casefold() for t in tasks}
+
+        def skip(tid: str, info: dict) -> bool:
+            return int(tid) in matched or _covered(info, files, names)
+
+        why = self._unfinished(seen, skip)
+        if why is None:
+            blocked.update(p for tid, info in seen["tasks"].items() if not skip(tid, info)
+                           for p in info.get("blocked", []))
+        return why
+
+    def _from_memory(self, name: str, newest_mtime: float, files: list, seen: dict, blocked: set[str]
+                     ) -> Readiness | str | None:
+        """An entry (or attached file) no task matched in this run, judged by what the Freebox last said about
+        its tasks: a Readiness that is not ready, the reason it is ready, or None when the record does not
+        apply (then completeness.untracked decides)."""
+        why = self._unfinished(seen)
+        if why:  # still listed and unfinished, or never filed: written up to its removal, then left incomplete
+            return Readiness(False, why)
+        if newest_mtime > seen["t"] + SEEN_SKEW_SECONDS:
             return None  # finished when last seen, yet written since: a new copy of that name
-        temp = [f.rel for f in item.files if f.ext in self.cfg.completeness.temp_extensions]
+        temp = [f.rel for f in files if f.ext in self.cfg.completeness.temp_extensions]
         if temp:
             return Readiness(False, f"temporary download file present: {temp[0]}")
-        # removed in Freebox OS after it finished: nothing writes or seeds these files any more; files it
-        # never fully received (deselected ones) stay blocked
+        # nothing writes or seeds these files any more; files a task never fully received (deselected ones)
+        # stay blocked
         blocked.update(p for info in seen["tasks"].values() for p in info.get("blocked", []))
+        listed = [(tid, t) for tid, info in sorted(seen["tasks"].items(), key=lambda x: int(x[0]))
+                  if (t := self.listed_task(tid, info)) is not None]
+        if listed:
+            tid, t = listed[0]
+            return (f"Freebox task {tid} is '{t.status}' (finished); its files were matched to {name!r} in an "
+                    "earlier run")
         states = ", ".join(sorted({i["status"] for i in seen["tasks"].values()}))
         return f"its Freebox task is gone, removed after it finished (last seen '{states}')"
-
-    def _missing_reason(self, tid: str, info: dict) -> str:
-        """Why an entry waits for a recorded task that was not complete and no longer writes into it."""
-        if int(tid) in self.listed_ids:
-            return (f"Freebox task {tid} (last seen '{info['status']}' at {info['pct'] / 100:.1f} %) is still listed, "
-                    "but none of its files could be matched to this entry in this run; the next run looks again")
-        return self._gone_reason(tid, info)
 
     @staticmethod
     def _gone_reason(tid: str, info: dict) -> str:
@@ -365,20 +405,13 @@ class FreeboxState:
         tasks = self._tasks_for(item.name, loose=not item.is_dir)
         seen = self.seen.get(_nfc(item.name).casefold()) if self.seen else None
         if tasks:
-            why = self._task_check(tasks, blocked, stop)
+            why = self._task_check(tasks, blocked, stop) or (self._others(seen, tasks, blocked) if seen else None)
             if why:
                 return Readiness(False, why)
-            gone = self._gone(seen, {t.id for t in tasks}) if seen else []
-            if gone:  # another task writing into this entry vanished before it was complete...
-                files = {os.path.normpath(local) for t in tasks for f in self._task_files(t)
-                         if (local := self.to_local(f.filepath))}
-                names = {_nfc(t.name).casefold() for t in tasks}
-                gone = [g for g in gone if not _covered(g[1], files, names)]  # ...and was not added again
-            if gone:
-                return Readiness(False, self._missing_reason(*gone[0]))
             reason = "Freebox: " + ", ".join(sorted({t.status for t in tasks}))
         else:
-            remembered = self._from_memory(item, seen, blocked) if seen is not None else None
+            remembered = (self._from_memory(item.name, item.newest_mtime, item.files, seen, blocked)
+                          if seen is not None else None)
             if isinstance(remembered, Readiness):
                 return remembered
             if remembered is not None:
@@ -391,17 +424,22 @@ class FreeboxState:
             else:
                 return Readiness(False, f"{item.name!r} is not a Freebox download task "
                                         "(completeness.untracked = \"wait\")")
-        # loose sidecars attached to a loose video: their own task must be finished, or
-        # (if they are not tasks) they must have been quiet for min_quiet_minutes
+        # loose sidecars attached to a loose video: their own task must be finished; a task of theirs that is
+        # gone decides as for the video; files no task ever wrote must have been quiet for min_quiet_minutes
         for f in item.files if not item.is_dir else []:
             if f.name == item.name:
                 continue
             extra = self._tasks_for(f.name, loose=True)
+            rec = self.seen.get(_nfc(f.name).casefold()) if self.seen else None
             if extra:
-                why = self._task_check(extra, blocked, stop)
+                why = self._task_check(extra, blocked, stop) or (self._others(rec, extra, blocked) if rec else None)
                 if why:
                     return Readiness(False, f"attached {f.name!r}: {why}")
-            elif (now - f.mtime) / 60 < self.cfg.completeness.min_quiet_minutes:
+                continue
+            r = self._from_memory(f.name, f.mtime, [f], rec, blocked) if rec is not None else None
+            if isinstance(r, Readiness):
+                return Readiness(False, f"attached {f.name!r}: {r.reason}")
+            if r is None and (now - f.mtime) / 60 < self.cfg.completeness.min_quiet_minutes:
                 return Readiness(False, f"attached {f.name!r} modified recently")
         return Readiness(True, reason, frozenset(blocked), frozenset(stop))
 
@@ -477,6 +515,8 @@ def stop_seeding(client: FreeboxClient, task_ids, timeout_s: float | None = None
             log.info("Freebox task %s is now '%s' at 100 %%: nothing left to stop", tid, t.status)
             for other in ids:  # the others must still be finished or seeding at 100 %
                 o = now[other]
+                if other in stopped:  # stopped by this run: confirmed below
+                    continue
                 if not (_finished(o) or (o.status == "seeding" and o.rx_pct >= 10000)):
                     return refused(other, f"Freebox task {other} is now '{o.status}'; the next run looks again")
             continue

@@ -118,6 +118,38 @@ class TestDeleteDuplicates(Base):
         self.assertIn("kept in review until you decide: it is a special edition (Extended)", out)
         self.assertEqual([os.path.basename(p) for p in self.dups()], ["Tamsin.2023.Extended.1080p.WEB.H264-GRP.mkv"])
 
+    def test_markers_count_in_any_name_of_the_download(self):
+        # the identity may come from the folder ('Tamsin (2023)') or the file: a REPACK or an edition named by
+        # the other one still keeps the copy
+        cases = {"Tamsin (2023)": "Tamsin.2023.Directors.Cut.1080p.BluRay.x264-GRP.mkv",
+                 "Tamsin.2023.1080p.WEB.H264-GRP": "Tamsin.2023.REPACK.1080p.WEB.H264-GRP.mkv",
+                 "Brightwater.S01E02.REPACK.1080p.WEB.x264-GRP": "Brightwater.S01E02.1080p.WEB.x264-GRP.mkv"}
+        for folder, name in cases.items():
+            self.dl(f"{folder}/{name}", b"y")
+            age_tree(os.path.join(self.nas.dl, folder))
+        for p in self.plan(review=DELETE):
+            d = p.decisions[0]
+            self.assertEqual(d.action, "duplicate", (p.item.name, d.reason, d.notes))
+            self.assertFalse(d.purge, p.item.name)  # kept until you decide, also without the setting
+            self.assertTrue(any(n.startswith("kept in review until you decide: it is a") for n in d.notes), d.notes)
+
+    def test_episode_of_another_country_is_kept(self):
+        # 'Brightwater UK' is not the 'Brightwater (2025)' of the library
+        self.dl("Brightwater.UK.S01E02.1080p.WEB.x264-GRP.mkv", b"y")
+        code, out = self.run_("run", "--apply", review=DELETE)
+        self.assertEqual(code, 0, out)
+        self.assertIn("kept in review until you decide: the release names a country (GB) that the folder "
+                      "'Brightwater (2025)' does not", out)
+        self.assertEqual(len(self.dups()), 1)
+
+    def test_episode_of_the_folders_country_is_deleted(self):
+        self.lib("Series/Quillon (US) (2020)/Season 1/Quillon.S01E01.mkv", b"x")
+        self.dl("Quillon.US.S01E01.1080p.WEB.x264-GRP.mkv", b"y")
+        code, out = self.run_("run", "--apply", review=DELETE)
+        self.assertEqual(code, 0, out)
+        self.assertIn("deleted from Downloads (review.delete_duplicates)", out)
+        self.assertFalse(self.nas.exists("Downloads/Quillon.US.S01E01.1080p.WEB.x264-GRP.mkv"))
+
     def test_identical_copy_is_still_deleted_and_its_subtitle_joins_the_library_copy(self):
         folder = "Tamsin.2023.1080p.WEB.H264-GRP"
         self.dl(f"{folder}/{folder}.mkv", b"x")  # byte-identical to the library copy
@@ -403,6 +435,60 @@ class TestFreeboxEdgeCases(FreeboxBase):
         self.assertEqual(self.puts(), [])  # an item that waits: its other task is not stopped
         self.assertFalse(self.filed())
 
+    def test_files_a_removed_task_never_received_stay_blocked_beside_another_task(self):
+        pack = "Two.Films.Pack.1080p.WEB.H264-GRP"
+        good, partial = "Rookfield.2026.1080p.WEB.H264-GRP.mkv", "Quarry.Lights.2026.1080p.WEB.H264-GRP.mkv"
+        touch(f"{self.nas.dl}/{pack}/{good}", b"movie")
+        touch(f"{self.nas.dl}/{pack}/{partial}", b"q")  # deselected: 1 byte of 9 on disk
+        touch(f"{self.nas.dl}/{pack}/{pack}.nfo", b"n")
+        age_tree(f"{self.nas.dl}/{pack}")
+
+        def f(name, size, rx, priority="normal"):
+            return {"filepath": b64(f"{REMOTE}{pack}/{name}"), "size": size, "rx": rx,
+                    "status": "done" if rx >= size else "queued", "priority": priority}
+
+        files = {1: [f(good, 5, 5), f(partial, 9, 1, "no_dl")], 2: [f(f"{pack}.nfo", 2, 1)]}
+        tasks = [task(1, pack, "seeding"), task(2, f"{pack}.nfo", "downloading", rx_pct=5000)]
+        code, out = self.run_(tasks, "--apply", files=files)
+        self.assertEqual(code, 0, out)
+        self.assertIn("Freebox task is downloading", out)
+        # task 1 removed in Freebox OS after it finished, files kept; then task 2 finishes
+        files[2] = [f(f"{pack}.nfo", 1, 1)]
+        code, out = self.run_([task(2, f"{pack}.nfo", "done")], "--apply", files={2: files[2]})
+        self.assertEqual(code, 0, out)
+        self.assertTrue(os.path.exists(f"{self.nas.movies}/Rookfield (2026)/{good}"), out)
+        self.assertFalse(glob.glob(f"{self.nas.movies}/Quarry Lights*"), out)
+        self.assertTrue(os.path.exists(f"{self.nas.dl}/{pack}/{partial}"))
+
+    def test_loose_subtitle_whose_task_was_removed_unfinished_holds_its_video(self):
+        video, sub = f"{MOVIE}.mkv", f"{MOVIE}.en.srt"
+        touch(f"{self.nas.dl}/{video}", b"movie")
+        touch(f"{self.nas.dl}/{sub}", b"s")  # 1 byte of 3
+
+        def f(name, size, rx):
+            return {"filepath": b64(f"{REMOTE}{name}"), "size": size, "rx": rx,
+                    "status": "done" if rx >= size else "downloading", "priority": "normal"}
+
+        files = {1: [f(video, 5, 5)], 2: [f(sub, 3, 1)]}
+        code, out = self.run_([task(1, video, "done"), task(2, sub, "downloading", rx_pct=3300)], "--apply",
+                              files=files)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"attached {sub!r}: Freebox task is downloading", out)
+        for _ in range(2):  # the subtitle's task removed in Freebox OS, its partial file kept
+            code, out = self.run_([task(1, video, "done")], "--apply", files={1: files[1]})
+            self.assertEqual(code, 0, out)
+            self.assertIn(f"attached {sub!r}: its Freebox task 2 is gone; it was last seen 'downloading' at 33.0 %",
+                          out)
+        self.assertTrue(os.path.exists(f"{self.nas.dl}/{sub}"))
+        self.assertFalse(os.path.exists(f"{self.nas.movies}/Rookfield (2026)"))
+
+    def test_task_with_null_fields_does_not_stop_the_run(self):
+        files = self.movie_download()
+        odd = dict(task(1, MOVIE, "done"), name=None, type=None)
+        code, out = self.run_([odd], "--apply", files=files)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.filed(), out)
+
     def test_task_still_listed_but_not_matched_waits(self):
         files = self.movie_download()
         code, out = self.run_([task(1, MOVIE, "seeding")], files=files)
@@ -411,7 +497,24 @@ class TestFreeboxEdgeCases(FreeboxBase):
         moved = task(1, MOVIE, "seeding", ddir="/Freebox/Elsewhere/")
         code, out = self.run_([moved], "--apply", untracked="quiescence")
         self.assertEqual(code, 0, out)
-        self.assertIn("Freebox task 1 is still listed, but none of its files could be matched", out)
+        self.assertIn("Freebox task 1 is still listed ('seeding' at 100.0 %), but none of its files could be "
+                      "matched", out)
+        self.assertFalse(self.filed())
+
+    def test_unmatched_seeding_task_holds_the_entry_while_another_task_is_done(self):
+        files = self.movie_download(with_subtitle=True)
+        files[2] = [self.file(f"{MOVIE}.en.srt", size=3, rx=3)]
+        tasks = [task(1, "Rookfield 2026 magnet", "seeding"), task(2, f"{MOVIE}.subs", "done")]
+        code, out = self.run_(tasks, files=files, on_seeding="wait")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Freebox task is seeding", out)
+        # next run: task 1's file list is not available (nor cached), so it is mapped by its (other) name, not
+        # to the folder
+        os.unlink(os.path.join(self.nas.state, "freebox_files.json"))
+        code, out = self.run_(tasks, "--apply", files={2: files[2]}, on_seeding="wait")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Freebox task 1 is still listed ('seeding' at 100.0 %), but none of its files could be "
+                      "matched", out)
         self.assertFalse(self.filed())
 
     def test_record_older_than_the_files_does_not_decide(self):
@@ -440,7 +543,10 @@ class TestFreeboxEdgeCases(FreeboxBase):
     # -- you remove the task and its files
     def test_task_and_files_removed(self):
         files = self.movie_download()
-        code, out = self.run_([task(1, MOVIE, "downloading", rx_pct=5000)], "--apply", files=files)
+        nfo = {"filepath": b64(f"{REMOTE}{MOVIE}/{MOVIE}.nfo"), "size": 2, "rx": 0, "status": "queued",
+               "priority": "normal"}  # a file the later download does not have
+        code, out = self.run_([task(1, MOVIE, "downloading", rx_pct=5000)], "--apply",
+                              files={1: [*files[1], nfo]})
         self.assertEqual(code, 0, out)
         self.assertIn(MOVIE.casefold(), self.seen())
         os.rename(os.path.join(self.nas.dl, MOVIE), os.path.join(self.nas.tmp, "erased"))  # "delete everything"
@@ -550,6 +656,21 @@ class TestStopSeedingRaces(unittest.TestCase):
         self.assertIn("Freebox task 2 could not be stopped", text)
         self.assertIn("it keeps seeding", text)
 
+    def test_task_stopped_by_this_run_is_not_judged_by_a_later_refusal(self):
+        self.fb.tasks.append(task(3, "Seeding.Show.S01E01.en.srt", "seeding"))
+
+        def per_task(fb, t):  # task 2 takes a moment to stop; task 3 reaches its ratio just before its stop
+            fb.on_stop = "finish" if t["id"] == 3 else "stopping"
+
+        self.fb.before_stop = per_task
+
+        def wait(_):
+            self.fb.tasks[0]["status"] = "stopped"
+
+        ok, text = comp.stop_seeding(self.client, [2, 3], timeout_s=5, sleep=wait)
+        self.assertTrue(ok, text)
+        self.assertEqual(text, "Freebox task 2 was seeding: stopped")
+
     def test_other_task_changed_meanwhile_is_not_stopped(self):
         self.fb.tasks.append(task(3, "Seeding.Show.S01E01.en.srt", "seeding"))
 
@@ -580,6 +701,7 @@ class TestSeenTasks(unittest.TestCase):
         st._tasks_for = lambda key, loose=False: by_entry.get(key, [])
         st._task_files = lambda t: (files or {}).get(t.id, [])
         st.to_local = lambda fp: "/dl/" + fp.split("/", 2)[-1]
+        st.listed_task = lambda tid, info: None
         return st
 
     @staticmethod
@@ -622,12 +744,17 @@ class TestSeenTasks(unittest.TestCase):
         seen = self.reopen(seen)
         self.assertEqual(sorted(seen.get("a")["tasks"]), ["1", "5"])
 
-    def test_a_finished_task_gone_is_not_kept_beside_new_tasks(self):
+    def test_a_finished_task_gone_stays_beside_new_tasks_until_replaced(self):
+        files = {1: [self.f("a/x.mkv"), self.f("a/y.mkv", rx=0, priority="no_dl")]}
         seen = comp.SeenTasks(self.path)
-        seen.observe(self.state({"a": [self.t(1, "seeding", 10000)]}, {"a"}))
+        seen.observe(self.state({"a": [self.t(1, "seeding", 10000)]}, {"a"}, files))
         seen = self.reopen(seen)
-        seen.observe(self.state({"a": [self.t(2, "downloading", 100)]}, {"a"}))
-        self.assertEqual(sorted(seen.new["a"]["tasks"]), ["2"])
+        seen.observe(self.state({"a": [self.t(2, "downloading", 100)]}, {"a"}, files))  # its deselected file
+        seen = self.reopen(seen)
+        self.assertEqual(seen.get("a")["tasks"]["1"]["blocked"], ["/dl/a/y.mkv"])  # stays blocked
+        files[3] = [self.f("a/x.mkv"), self.f("a/y.mkv")]  # added again: a task writes both files
+        seen.observe(self.state({"a": [self.t(2, "downloading", 100), self.t(3, "checking", 0)]}, {"a"}, files))
+        self.assertEqual(sorted(seen.new["a"]["tasks"]), ["2", "3"])
 
     def test_unreadable_memory_is_empty(self):
         with open(self.path, "w") as fh:
@@ -635,7 +762,9 @@ class TestSeenTasks(unittest.TestCase):
         self.assertIsNone(comp.SeenTasks(self.path).get("a"))
         for bad in ({"task": 1, "pct": 1},  # the format of no release
                     {"t": 1, "tasks": {}}, {"t": 1, "tasks": {"x": {"pct": 1, "status": "done"}}},
-                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "files": "/dl/a"}}}):
+                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "files": "/dl/a"}}},
+                    {"t": 1, "tasks": {"\u00b2": {"pct": 1, "status": "done"}}},  # a digit, not 0-9
+                    {"t": 1, "tasks": {"1": {"pct": 1, "status": "done", "created": "x"}}}):
             with open(self.path, "w") as fh:
                 json.dump({"a": bad}, fh)
             self.assertIsNone(comp.SeenTasks(self.path).get("a"), bad)
@@ -696,8 +825,10 @@ class TestStagedWithoutVideo(unittest.TestCase):
 
         with mock.patch("mediaorg.cli.os.walk", side_effect=walk):
             self.assertIsNone(cli._has_video(os.path.dirname(folder), {".mkv"}))
+            self.assertNotIn("hold no video file", self.check())
         self.assertFalse(cli._has_video(os.path.dirname(folder), {".mkv"}))
         self.assertTrue(cli._has_video(os.path.dirname(folder), {".jpg"}))
+        self.assertIn("hold no video file", self.check())
 
 
 class TestItemOfReadiness(unittest.TestCase):

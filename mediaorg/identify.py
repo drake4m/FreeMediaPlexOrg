@@ -357,6 +357,23 @@ def _identify_one(fg: dict, dg: dict | None, single_main_video: bool) -> IdResul
     return IdResult(None, reason)
 
 
+def release_markers(names) -> tuple[bool, str | None]:
+    """(REPACK/PROPER, special edition) named by any of `names` (the Downloads entry, the folders below it,
+    the file): a marker counts wherever it is, whichever name gave the identity."""
+    proper, editions = False, []
+    for name in names:
+        g = guess(name)
+        proper = proper or "Proper" in _as_list(g.get("other")) or bool(g.get("proper_count"))
+        editions += [str(e) for e in _as_list(g.get("edition")) if str(e) not in editions]
+    return proper, ", ".join(editions) or None
+
+
+def country_of(name: str) -> str | None:
+    """Country code a name carries ('The Depot (US) (2019)' -> 'US'), or None."""
+    c = guess(name).get("country")
+    return getattr(c, "alpha2", None) or (str(c) if c else None)
+
+
 def _season_of_folder(name: str) -> tuple[int, dict | None] | None:
     """(season, guess of a name that also carries the show title, or None) for a folder naming one
     season: 'Season 2', 'S02', 'Saison 2', 'Specials' (no title); 'The Depot Season 2',
