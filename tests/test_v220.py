@@ -667,7 +667,11 @@ class TestStagedWithoutVideo(unittest.TestCase):
         self.nas.cleanup()
 
     def check(self):
-        with cli_env(self.nas, tmm={"enabled": True, "base_url": "http://127.0.0.1:9"},
+        key = os.path.join(self.nas.tmp, "tmm.key")  # never the machine's own /etc/mediaorg/tmm.key
+        with open(key, "w") as fh:
+            fh.write("0123456789abcdef")
+        os.chmod(key, 0o600)
+        with cli_env(self.nas, tmm={"enabled": True, "base_url": "http://127.0.0.1:9", "api_key_file": key},
                      naming={"tmm_staging": True}) as path:
             _, out = run_cli("-c", path, "check")
         return out
