@@ -191,6 +191,7 @@ The report says `Freebox task N was seeding: stopped`.
 | you remove the task, keeping the files, after it finished | files the download (the next run); files it never fully received (deselected ones) stay in Downloads |
 | you remove it before it finished, or while it was in error or being verified | never files those files: `its Freebox task N is gone; it was last seen 'downloading' at X %, so its files may be incomplete` |
 | you then add the download again in Freebox OS, into the same folder | the new task checks what is there and finishes; the download is filed once it is done (the removed task no longer counts once a task writes all of its files) |
+| or you delete the files the removed task wrote (the message names them) | the removed task no longer counts: what is left is filed once its own tasks are finished |
 | you remove one of two tasks writing into the same folder before it finished | the folder waits, as above, even while the other task is finished |
 | you remove the task and its files | nothing; a run that was about to file it skips it: `gone from Downloads since the scan` |
 | you resume a task after its download was filed | the Freebox downloads it again; once finished it is a duplicate of the library copy: deleted with `review.delete_duplicates` (the seeding is stopped first), otherwise moved to review |

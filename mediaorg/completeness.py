@@ -122,6 +122,23 @@ def _complete(info: dict) -> bool:
                                              and info.get("pct", 0) >= 10000)
 
 
+def _absent(path: str) -> bool:
+    """True only when `path` certainly does not exist (a storage that does not answer is not "absent")."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _left(info: dict) -> list[str]:
+    """The recorded files of a task still on disk (all of them when its files are unknown: [''] then)."""
+    files = info.get("files") or []
+    return [p for p in files if not _absent(p)] if files else [""]
+
+
 def _covered(info: dict, files: set[str], names: set[str]) -> bool:
     """Is a recorded task replaced by the tasks now writing into its entry (the download added again in
     Freebox OS): do they write every file it wrote (or, its files unknown, carry its name)?"""
@@ -344,8 +361,8 @@ class FreeboxState:
             if lt is not None and not _finished(lt) and not skip(tid, info):
                 return (f"Freebox task {tid} is still listed ('{lt.status}' at {lt.rx_pct / 100:.1f} %), but none of "
                         "its files could be matched to this entry in this run; the next run looks again")
-        for tid, info in tasks:
-            if self.listed_task(tid, info) is None and not _complete(info) and not skip(tid, info):
+        for tid, info in tasks:  # a removed task whose files were all deleted since no longer counts
+            if self.listed_task(tid, info) is None and not _complete(info) and not skip(tid, info) and _left(info):
                 return self._gone_reason(tid, info)
         return None
 
@@ -394,9 +411,12 @@ class FreeboxState:
 
     @staticmethod
     def _gone_reason(tid: str, info: dict) -> str:
+        left = [os.path.basename(p) for p in _left(info) if p]
+        which = (": " + ", ".join(repr(n) for n in left[:3]) + (f" and {len(left) - 3} more" if len(left) > 3 else "")
+                 if left else "")
         return (f"its Freebox task {tid} is gone; it was last seen '{info['status']}' at {info['pct'] / 100:.1f} %, so "
                 "its files may be incomplete: add the download again in Freebox OS, into the same folder (it checks "
-                "the files and completes them), or delete them")
+                f"the files and completes them), or delete the files it wrote{which}")
 
     def assess(self, item: Item, now: float | None = None) -> Readiness:
         now = time.time() if now is None else now

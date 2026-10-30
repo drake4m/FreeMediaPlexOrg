@@ -432,8 +432,13 @@ class TestFreeboxEdgeCases(FreeboxBase):
             code, out = self.run_([task(1, MOVIE, "seeding")], "--apply", files={1: files[1]})
             self.assertEqual(code, 0, out)
             self.assertIn("its Freebox task 2 is gone; it was last seen 'downloading' at 30.0 %", out)
+            self.assertIn(f"or delete the files it wrote: '{MOVIE}.en.srt'", out)
         self.assertEqual(self.puts(), [])  # an item that waits: its other task is not stopped
         self.assertFalse(self.filed())
+        os.unlink(f"{self.nas.dl}/{MOVIE}/{MOVIE}.en.srt")  # you delete the partial file: the rest is filed
+        code, out = self.run_([task(1, MOVIE, "seeding")], "--apply", files={1: files[1]})
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.filed(), out)
 
     def test_files_a_removed_task_never_received_stay_blocked_beside_another_task(self):
         pack = "Two.Films.Pack.1080p.WEB.H264-GRP"

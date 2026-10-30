@@ -25,17 +25,17 @@ One new opt-in setting, the rest are fixes; without `review.delete_duplicates`, 
   confirmed) go to `review/duplicates` and are kept until you decide; certain duplicates that earlier runs
   moved there are deleted by the next run. `status` shows the rule in force; `undo` lists such deletions as
   not restorable. It cannot be combined with `review.delete_identical_duplicates = false`.
-- Freebox: a download whose task disappeared from the Freebox (removed in Freebox OS, its files kept) is
-  filed when the task had received everything when a run last saw it, even with
-  `completeness.untracked = "wait"`, and never when it had not, or was in error or being verified (its files
-  may be incomplete), even with `untracked = "quiescence"`, until the download is added again in Freebox OS
-  and its new task finishes. The same holds for one of several tasks writing into a folder, and for a
-  subtitle downloaded by a task of its own next to its video. Files a removed task never fully received
-  (deselected ones) stay in Downloads, also while other tasks write into the same folder. A task the Freebox
-  still lists, but whose files are not matched to its download in a run, makes the download wait unless
-  the task is finished. What the Freebox last said about the tasks of each entry of Downloads is kept in
-  `<state_dir>/freebox_seen.json`, and forgotten when the entry leaves Downloads; a record older than the
-  entry's files does not decide.
+- Freebox: a download whose task disappeared from the Freebox (removed in Freebox OS, its files kept) is filed
+  when the task had received everything when a run last saw it, even with `completeness.untracked = "wait"`,
+  and never when it had not, or was in error or being verified (its files may be incomplete), even with
+  `untracked = "quiescence"`, until the download is added again in Freebox OS and its new task finishes, or
+  until you delete the files that task wrote (the message names them). The same holds for one of several tasks
+  writing into a folder, and for a subtitle downloaded by a task of its own next to its video. Files a removed
+  task never fully received (deselected ones) stay in Downloads, also while other tasks write into the same
+  folder. A task the Freebox still lists, but whose files are not matched to its download in a run, makes the
+  download wait unless the task is finished. What the Freebox last said about the tasks of each entry of
+  Downloads is kept in `<state_dir>/freebox_seen.json`, and forgotten when the entry leaves Downloads; a
+  record older than the entry's files does not decide.
 
 ### Fixed
 
